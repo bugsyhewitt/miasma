@@ -1,53 +1,31 @@
 """End-to-end smoke test with the nmap layer mocked.
 
 Runs the real CLI (recon -> probe -> JSON output) against a fake scanner so the
-suite is green even on systems without ``nmap`` installed (mocked at the
-python-nmap boundary, ``miasma.recon._new_scanner``).
+suite is green even on systems without ``nmap`` installed. miasma fingerprints
+via the shared ``nmap-wrapper`` library, so we mock that library's single nmap
+seam (``nmap_wrapper.scanner._new_scanner``) with its shipped ``FakeScanner`` +
+canned-data builder.
 """
 
 import json
 
-import miasma.recon as recon_mod
+import nmap_wrapper.scanner as scanner_mod
+from nmap_wrapper.testing import FakeScanner, service_scan_result
+
 from miasma.cli import main
-
-
-class _FakeHost:
-    def __init__(self, protos):
-        self._protos = protos
-
-    def all_protocols(self):
-        return list(self._protos.keys())
-
-    def __getitem__(self, proto):
-        return self._protos[proto]
-
-
-class FakeScanner:
-    def __init__(self, data):
-        self._data = data
-
-    def scan(self, hosts, ports, arguments):  # matches python-nmap signature
-        self.scanned = (hosts, ports, arguments)
-
-    def all_hosts(self):
-        return list(self._data.keys())
-
-    def __getitem__(self, host):
-        return _FakeHost(self._data[host])
 
 
 def test_end_to_end_test_plugin_produces_json_finding(monkeypatch, capsys):
     fake = FakeScanner(
-        {
-            "127.0.0.1": {
-                "tcp": {
-                    8080: {"state": "open", "name": "http-proxy"},
-                    22: {"state": "open", "name": "ssh"},
-                }
-            }
-        }
+        service_scan_result(
+            "127.0.0.1",
+            [
+                {"port": 8080, "name": "http-proxy"},
+                {"port": 22, "name": "ssh"},
+            ],
+        )
     )
-    monkeypatch.setattr(recon_mod, "_new_scanner", lambda: fake)
+    monkeypatch.setattr(scanner_mod, "_new_scanner", lambda: fake)
 
     exit_code = main(
         [

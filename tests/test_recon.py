@@ -1,54 +1,29 @@
-"""Recon tests with the python-nmap boundary mocked.
+"""Recon tests with the shared nmap seam mocked.
 
-These tests never invoke the real ``nmap`` binary — they mock the PortScanner
-seam (``miasma.recon._new_scanner``) so the suite is green on systems without
-nmap installed.
+These tests never invoke the real ``nmap`` binary. miasma now fingerprints via
+the shared ``nmap-wrapper`` library, so we mock that library's single nmap seam
+(``nmap_wrapper.scanner._new_scanner``) using its shipped ``FakeScanner`` +
+canned-data builder. The suite stays green on systems without nmap installed.
 """
 
-from unittest.mock import MagicMock
+import nmap_wrapper.scanner as scanner_mod
+from nmap_wrapper.testing import FakeScanner, service_scan_result
 
-import miasma.recon as recon_mod
 from miasma.recon import recon
-
-
-class FakeScanner:
-    """Minimal stand-in for python-nmap's PortScanner."""
-
-    def __init__(self, data):
-        self._data = data
-        self.scan = MagicMock()
-
-    def all_hosts(self):
-        return list(self._data.keys())
-
-    def __getitem__(self, host):
-        return _FakeHost(self._data[host])
-
-
-class _FakeHost:
-    def __init__(self, protos):
-        self._protos = protos
-
-    def all_protocols(self):
-        return list(self._protos.keys())
-
-    def __getitem__(self, proto):
-        return self._protos[proto]
 
 
 def test_recon_populates_target_from_scanner(monkeypatch):
     fake = FakeScanner(
-        {
-            "127.0.0.1": {
-                "tcp": {
-                    80: {"state": "open", "name": "http", "product": "nginx"},
-                    22: {"state": "open", "name": "ssh"},
-                    81: {"state": "closed", "name": "hosts2-ns"},
-                }
-            }
-        }
+        service_scan_result(
+            "127.0.0.1",
+            [
+                {"port": 80, "name": "http", "product": "nginx"},
+                {"port": 22, "name": "ssh"},
+                {"port": 81, "name": "hosts2-ns", "state": "closed"},
+            ],
+        )
     )
-    monkeypatch.setattr(recon_mod, "_new_scanner", lambda: fake)
+    monkeypatch.setattr(scanner_mod, "_new_scanner", lambda: fake)
 
     target = recon("127.0.0.1", "1-1000")
 
