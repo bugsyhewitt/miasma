@@ -13,7 +13,13 @@ These are immediately actionable: the vulnerability is widely deployed, the
 benign probe is a version-check or unauthenticated endpoint hit with no
 side effects, and bug-bounty programs regularly pay on them.
 
-### 1.1 Spring Boot Actuator exposure (misconfiguration)
+### 1.1 Spring Boot Actuator exposure (misconfiguration) — ✅ IMPLEMENTED
+
+**Status:** Implemented as plugin `miasma_actuator_001` (Phase 2, Rotation 2).
+Benign probe walking `/actuator/health` → `/actuator` → `/actuator/env`, with a
+header-only `/actuator/heapdump` check (no body download). HIGH when
+`/actuator/env` leaks secret-bearing keys (`password`/`secret`/`key`/`token`/
+`credential`); MEDIUM on partial exposure.
 
 **ID:** MIASMA-ACTUATOR-001  
 **Vuln class:** Exposed sensitive management endpoints  

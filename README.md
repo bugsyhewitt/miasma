@@ -165,6 +165,33 @@ confirm — not a weaponized exploit.
 |---|---|---|
 | `test_always_finds` | `MIASMA-TEST-0001` | Canonical test plugin — always returns a finding. |
 | `cve_2009_3548` | `CVE-2009-3548` | Apache Tomcat default/weak manager credentials. |
+| `miasma_actuator_001` | `MIASMA-ACTUATOR-001` | Exposed Spring Boot Actuator management endpoints (env/secret leak, heap dump). |
+
+### MIASMA-ACTUATOR-001 — Spring Boot Actuator exposure
+
+Probes for unauthenticated Spring Boot `/actuator/*` management endpoints,
+which can leak environment variables, credentials, configuration, and a
+downloadable heap dump. The probe is benign and read-only:
+
+1. `GET /actuator/health` — lowest-risk baseline; confirms a Spring Boot app.
+2. `GET /actuator` — confirms the management base is reachable.
+3. `GET /actuator/env` — the sensitive endpoint (environment variables).
+4. `GET /actuator/heapdump` — **header-only** check; the body is never
+   downloaded, only `Content-Type` / `Content-Length` are inspected.
+
+Severity:
+
+- **high** — `/actuator/env` returns `200` with JSON keys that look like
+  secrets (`password`, `secret`, `key`, `token`, `credential`).
+- **medium** — the management surface is reachable but no recognised secrets
+  are exposed (env reachable without secrets, or `/actuator` reachable while
+  `/actuator/env` is blocked) — partial exposure still worth reporting.
+
+Default management ports: `80, 443, 8080, 8443, 8090, 9090`.
+
+```bash
+miasma --target 10.0.0.5 --port-range 1-10000 --plugins miasma_actuator_001
+```
 
 ## Development
 
