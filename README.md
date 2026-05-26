@@ -16,8 +16,10 @@ Each probe is a small, auditable Python file. Linux-native — no JVM, no Docker
 
 ## System dependencies
 
-`miasma` shells out to `nmap` for the recon phase. **`nmap` is not
-pip-installable** — install it with your system package manager first:
+`miasma`'s recon phase shells out to `nmap` via the shared
+[`nmap-wrapper`](https://github.com/bugsyhewitt/nmap-wrapper) library (installed
+automatically as a dependency). **`nmap` itself is not pip-installable** —
+install it with your system package manager first:
 
 ```bash
 # Debian / Ubuntu
@@ -171,8 +173,9 @@ pip install -e ".[dev]"
 pytest
 ```
 
-The test suite mocks `nmap` at the `python-nmap` boundary, so it's green on
-systems without `nmap` installed.
+The test suite mocks `nmap` at the shared `nmap-wrapper` seam
+(`nmap_wrapper.scanner._new_scanner`), so it's green on systems without `nmap`
+installed.
 
 ## License
 
