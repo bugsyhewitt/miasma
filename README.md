@@ -166,6 +166,7 @@ confirm — not a weaponized exploit.
 | `test_always_finds` | `MIASMA-TEST-0001` | Canonical test plugin — always returns a finding. |
 | `cve_2009_3548` | `CVE-2009-3548` | Apache Tomcat default/weak manager credentials. |
 | `miasma_actuator_001` | `MIASMA-ACTUATOR-001` | Exposed Spring Boot Actuator management endpoints (env/secret leak, heap dump). |
+| `miasma_redis_001` | `MIASMA-REDIS-001` | Redis reachable without authentication (PING/INFO handshake). |
 
 ### MIASMA-ACTUATOR-001 — Spring Boot Actuator exposure
 
@@ -191,6 +192,35 @@ Default management ports: `80, 443, 8080, 8443, 8090, 9090`.
 
 ```bash
 miasma --target 10.0.0.5 --port-range 1-10000 --plugins miasma_actuator_001
+```
+
+### MIASMA-REDIS-001 — Redis unauthenticated access
+
+Probes for a Redis instance reachable without authentication. Unauthenticated
+Redis grants full read/write access to every key and also gates the
+CVE-2025-49844 ("RediShell", CVSS 10.0) Lua use-after-free RCE chain on affected
+builds. The probe speaks the Redis inline protocol over a raw TCP socket and is
+benign and read-only:
+
+1. Connect to a candidate port and send `PING\r\n`.
+   - `+PONG` (no auth challenge) → unauthenticated access confirmed.
+   - `-NOAUTH` / `-ERR ... AUTH ...` → authentication is enforced; not vulnerable.
+2. On confirmed access, send `INFO server\r\n` and parse only the
+   `redis_version` line for evidence.
+
+No keys are read, no data is written, no config is touched.
+
+Severity:
+
+- **high** — `PING` returns `+PONG` with no authentication challenge.
+
+When the reported `redis_version` is `<= 8.2.1`, the finding flags
+`cve_2025_49844_in_scope` and notes CVE-2025-49844 in the description.
+
+Default ports (port hints): `6379, 6380, 16379`.
+
+```bash
+miasma --target 10.0.0.7 --port-range 1-20000 --plugins miasma_redis_001
 ```
 
 ## Development
