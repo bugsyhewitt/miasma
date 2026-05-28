@@ -50,6 +50,15 @@ def build_parser() -> argparse.ArgumentParser:
         help="Output format (default: json).",
     )
     parser.add_argument(
+        "--output-file",
+        default=None,
+        metavar="PATH",
+        help=(
+            "Write the JSON report to this file instead of stdout, enabling "
+            "piping into downstream tooling. Use '-' for stdout (the default)."
+        ),
+    )
+    parser.add_argument(
         "--list-plugins",
         action="store_true",
         help="List available plugins and exit.",
@@ -87,8 +96,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     }
 
     if args.format == "json":
-        json.dump(report, sys.stdout, indent=2)
-        sys.stdout.write("\n")
+        text = json.dumps(report, indent=2) + "\n"
+        if args.output_file in (None, "-"):
+            sys.stdout.write(text)
+        else:
+            with open(args.output_file, "w", encoding="utf-8") as fh:
+                fh.write(text)
 
     return 0
 

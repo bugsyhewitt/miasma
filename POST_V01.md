@@ -363,7 +363,11 @@ manually; standardise it.
 
 ---
 
-### I.3 `--output-file` flag for JSON findings
+### I.3 `--output-file` flag for JSON findings — ✅ IMPLEMENTED
+
+**Status:** Implemented (Phase 2). `--output-file <path>` writes the JSON report
+to a file instead of stdout; `-` forces stdout (the default). Enables piping
+into downstream tooling (e.g., `unearth` → miasma → `covenant`).
 
 Add `--output-file <path>` to the CLI so findings can be written to a file
 directly, enabling piping into downstream tooling (e.g., `unearth` → miasma
@@ -391,7 +395,7 @@ total scan time when multiple plugins are specified. I/O-bound probes
 | 2 | Redis unauthenticated access | Plugin | Small |
 | 3 | Elasticsearch unauthenticated access | Plugin | Small |
 | 4 | Jenkins CVE-2024-23897 file read | Plugin | Small-Medium |
-| 5 | `--output-file` CLI flag | Infrastructure | Small |
+| 5 | `--output-file` CLI flag ✅ | Infrastructure | Small |
 | 6 | Plugin `port_hint`/`service_hint` | Infrastructure | Small |
 | 7 | Apache Tomcat CVE-2025-55752 | Plugin | Medium |
 | 8 | Fortinet FortiWeb CVE-2025-64446 | Plugin | Medium |
