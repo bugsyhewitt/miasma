@@ -263,7 +263,15 @@ Confidence: **high** on Windows Traccar hosts ≤ 6.8.1
 
 ## Tier 3 — Good additions after Tier 1 & 2 are done
 
-### 3.1 Exposed `.git` directory
+### 3.1 Exposed `.git` directory — ✅ IMPLEMENTED
+
+**Status:** Implemented as plugin `miasma_git_001` (Phase 2, Rotation 10).
+Benign, read-only probe: `GET /.git/HEAD` (flags only a genuine Git symbolic
+ref or detached-HEAD SHA — an SPA `index.html` returned for every path is NOT
+flagged), then `GET /.git/config` to detect credential-bearing remote URLs
+(`://user:pass@`), with the password **redacted** in evidence. HIGH when
+`/.git/HEAD` confirms the exposed directory. Redirects are not followed (the
+dotfile must be served directly). Default ports: 80, 443, 8080, 8443.
 
 **ID:** MIASMA-GIT-001  
 **Vuln class:** Information disclosure (misconfiguration)
@@ -417,7 +425,7 @@ total scan time when multiple plugins are specified. I/O-bound probes
 | 6 | Plugin `port_hint`/`service_hint` ✅ | Infrastructure | Small |
 | 7 | Apache Tomcat CVE-2025-55752 | Plugin | Medium |
 | 8 | Fortinet FortiWeb CVE-2025-64446 ✅ | Plugin | Medium |
-| 9 | Exposed `.git` directory | Plugin | Small |
+| 9 | Exposed `.git` directory ✅ | Plugin | Small |
 | 10 | Exposed `.env` file | Plugin | Small |
 | 11 | Spring Cloud Gateway CVE-2025-41243 | Plugin | Medium |
 | 12 | Traccar CVE-2025-61666 | Plugin | Medium |
