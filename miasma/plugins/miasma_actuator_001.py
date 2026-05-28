@@ -56,6 +56,10 @@ metadata = {
         "https://docs.spring.io/spring-boot/reference/actuator/endpoints.html",
     ],
     # Management ports we'll consider; also the fallback when recon found none.
+    # port_hint is the canonical field the runner reads to skip irrelevant
+    # plugins; default_ports is kept as the in-probe fallback alias.
+    "port_hint": [80, 443, 8080, 8443, 8090, 9090],
+    "service_hint": ["http", "https"],
     "default_ports": [80, 443, 8080, 8443, 8090, 9090],
 }
 

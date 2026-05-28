@@ -34,7 +34,11 @@ metadata = {
         "https://nvd.nist.gov/vuln/detail/CVE-2009-3548",
     ],
     # Ports we'll consider if recon found them open; falls back to these
-    # defaults when no recon data is available.
+    # defaults when no recon data is available. port_hint is the canonical
+    # field the runner reads to skip irrelevant plugins; default_ports is kept
+    # as the in-probe fallback alias.
+    "port_hint": [8080, 8443, 80, 443],
+    "service_hint": ["http", "https"],
     "default_ports": [8080, 8443, 80, 443],
 }
 

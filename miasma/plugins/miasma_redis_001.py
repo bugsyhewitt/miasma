@@ -56,6 +56,7 @@ metadata = {
     # Ports the probe will try, in order. Also the fallback when recon found
     # nothing. Exposed as port_hint per the improvement spec.
     "port_hint": [6379, 6380, 16379],
+    "service_hint": ["redis"],
     "default_ports": [6379, 6380, 16379],
 }
 

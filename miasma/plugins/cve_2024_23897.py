@@ -76,6 +76,7 @@ metadata = {
     # Ports the probe will try, in order. Also the fallback when recon found
     # nothing. Exposed as port_hint per the improvement spec convention.
     "port_hint": [8080, 80, 443, 8090],
+    "service_hint": ["http", "https"],
     "default_ports": [8080, 80, 443, 8090],
 }
 
