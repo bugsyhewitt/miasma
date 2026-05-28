@@ -76,6 +76,13 @@ miasma --target 10.0.0.5 --plugins test_always_finds,cve_2009_3548
 miasma --list-plugins
 ```
 
+Write the JSON report to a file (for piping into downstream tooling) instead of
+stdout with `--output-file`. Use `-` to force stdout (the default):
+
+```bash
+miasma --target 10.0.0.5 --plugins cve_2009_3548 --output-file findings.json
+```
+
 Output is JSON:
 
 ```json
@@ -104,6 +111,7 @@ Output is JSON:
 | `--plugins` | Comma-separated plugin names (file stems under `miasma/plugins`). |
 | `--port-range` | nmap port spec for the recon phase (default `1-1000`). |
 | `--format` | Output format (`json`, default). |
+| `--output-file` | Write the JSON report to this path instead of stdout (`-` = stdout). |
 | `--list-plugins` | List available plugins and exit. |
 
 ## Writing a plugin
