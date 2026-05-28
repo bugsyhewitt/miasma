@@ -212,6 +212,7 @@ its service name as `redis`.
 | `cve_2025_64446` | `CVE-2025-64446` | Fortinet FortiWeb authentication bypass via API path traversal (CISA KEV). |
 | `miasma_git_001` | `MIASMA-GIT-001` | Exposed `.git/` directory (source code, commit history, committed secrets). |
 | `miasma_env_001` | `MIASMA-ENV-001` | Exposed `.env` file (database URLs, cloud keys, API keys, app secrets). |
+| `cve_2025_41243` | `CVE-2025-41243` | Spring Cloud Gateway exposed actuator (`/actuator/gateway/routes`) — mutable route table enables SpEL/env injection. |
 
 ### MIASMA-ACTUATOR-001 — Spring Boot Actuator exposure
 
@@ -433,6 +434,44 @@ directly). Default ports (port hints): `80, 443, 8080, 8443`.
 
 ```bash
 miasma --target 10.0.0.5 --port-range 1-10000 --plugins miasma_env_001
+```
+
+### CVE-2025-41243 — Spring Cloud Gateway exposed actuator
+
+Probes for a Spring Cloud Gateway whose actuator `gateway` endpoints are exposed
+without authentication. Spring Cloud Gateway exposes `/actuator/gateway/*` to let
+operators inspect and **mutate** the routing table at runtime. When those
+endpoints are unauthenticated, an attacker can POST a new route carrying a Spring
+Expression Language (SpEL) payload in a filter; on the next request through that
+route the SpEL is evaluated, exfiltrating environment variables, credentials, and
+API keys (or achieving RCE). The probe is benign and read-only — it **never**
+POSTs, modifies a route, or injects an expression. It only confirms the surface
+is reachable without auth:
+
+1. `GET /actuator/gateway/routes` — the route table (a JSON array). A `200`
+   serving an array confirms the mutable route surface is exposed.
+2. `GET /actuator/gateway` — the gateway actuator base (fallback). A `200` JSON
+   object listing gateway sub-endpoints is partial confirmation.
+
+A server that returns its SPA `index.html` for every path is **not** flagged
+(HTML doesn't parse as JSON), and a JSON *object* at the routes path is not
+treated as a route table.
+
+Severity:
+
+- **high** — `/actuator/gateway/routes` returns `200` with a JSON array (the
+  route table). The mutate-able route surface is confirmed exposed.
+- **medium** — the route table is not cleanly served but the gateway actuator
+  base `/actuator/gateway` returns `200` JSON (surface present, route table not
+  confirmed).
+
+Evidence records only the route count and route *ids* (operator-chosen labels,
+not secrets) so a human can confirm the table is real without us touching it.
+Redirects are not followed (a redirect to a login page means the surface is not
+unauthenticated). Default ports (port hints): `8080, 8443, 80, 443`.
+
+```bash
+miasma --target 10.0.0.5 --port-range 1-10000 --plugins cve_2025_41243
 ```
 
 ## Development
