@@ -186,7 +186,18 @@ Confidence: **high** on fingerprinted FortiWeb hosts
 
 ---
 
-### 2.2 Spring Cloud Gateway CVE-2025-41243 — unauthenticated SpEL/env injection
+### 2.2 Spring Cloud Gateway CVE-2025-41243 — unauthenticated SpEL/env injection — ✅ IMPLEMENTED
+
+**Status:** Implemented as plugin `cve_2025_41243` (Phase 2, Rotation 12).
+Benign, read-only exposure probe: `GET /actuator/gateway/routes` (the mutable
+route table) and, as a fallback, `GET /actuator/gateway` (the gateway actuator
+base). HIGH when the routes path returns `200` with a JSON *array* (the route
+table — the mutate-able SpEL-injection surface is confirmed exposed); MEDIUM when
+the route table is not cleanly served but the gateway base returns `200` JSON. No
+route modification, no SpEL injection, no POSTs are ever performed. An SPA
+`index.html` (non-JSON) or a JSON object at the routes path is not flagged.
+Redirects are not followed. Evidence records only the route count and route
+*ids* (operator labels, not secrets). Default ports: 8080, 8443, 80, 443.
 
 **ID:** CVE-2025-41243  
 **CVSS:** High (unauthenticated RCE via actuator endpoint)
@@ -437,7 +448,7 @@ total scan time when multiple plugins are specified. I/O-bound probes
 | 8 | Fortinet FortiWeb CVE-2025-64446 ✅ | Plugin | Medium |
 | 9 | Exposed `.git` directory ✅ | Plugin | Small |
 | 10 | Exposed `.env` file ✅ | Plugin | Small |
-| 11 | Spring Cloud Gateway CVE-2025-41243 | Plugin | Medium |
+| 11 | Spring Cloud Gateway CVE-2025-41243 ✅ | Plugin | Medium |
 | 12 | Traccar CVE-2025-61666 | Plugin | Medium |
 | 13 | Service-type targeting | Infrastructure | Medium |
 | 14 | Concurrent plugin execution | Infrastructure | Medium |
