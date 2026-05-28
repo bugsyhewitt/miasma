@@ -208,6 +208,7 @@ its service name as `redis`.
 | `miasma_actuator_001` | `MIASMA-ACTUATOR-001` | Exposed Spring Boot Actuator management endpoints (env/secret leak, heap dump). |
 | `miasma_redis_001` | `MIASMA-REDIS-001` | Redis reachable without authentication (PING/INFO handshake). |
 | `cve_2024_23897` | `CVE-2024-23897` | Jenkins CLI unauthenticated arbitrary file read (args4j `@file` expansion). |
+| `cve_2025_55752` | `CVE-2025-55752` | Apache Tomcat Rewrite Valve path traversal into `/WEB-INF/` (web.xml disclosure). |
 
 ### MIASMA-ACTUATOR-001 — Spring Boot Actuator exposure
 
@@ -293,6 +294,37 @@ Default ports (port hints): `8080, 80, 443, 8090`.
 
 ```bash
 miasma --target 10.0.0.9 --port-range 1-10000 --plugins cve_2024_23897
+```
+
+### CVE-2025-55752 — Apache Tomcat Rewrite Valve path traversal
+
+Probes for the Tomcat path traversal that becomes reachable when the Rewrite
+Valve (`rewrite.config`) is configured. A crafted, rewrite-decoded path slips
+past Tomcat's security constraints and reaches the normally-protected
+`/WEB-INF/` directory, whose `web.xml` deployment descriptor routinely carries
+JDBC/database credentials, JNDI resources, and application secrets. The probe is
+benign and read-only — it only *attempts to read* the inert `WEB-INF/web.xml`
+descriptor; nothing is written and no state changes.
+
+1. `GET /` — fingerprint Tomcat via the `Server` header (`Apache-Coyote`/`Tomcat`).
+2. `GET <traversal>/WEB-INF/web.xml` — a small ordered set of well-known
+   traversal shapes. A normal request returns `403`/`404`; a `200` whose body
+   contains the `<web-app` descriptor marker confirms the traversal read.
+
+Severity:
+
+- **high** — the protected `WEB-INF/web.xml` was returned (`200` with a
+  `<web-app` marker); the path-traversal read is confirmed.
+- **medium** — the host fingerprints as Tomcat and a normally-protected path
+  returned a non-`403`/`404` status, but the descriptor read was not confirmed
+  on this probe (hardened, partially exposed, or behind a different layout) —
+  worth a manual check.
+
+A non-Tomcat host is never flagged, even if it answers oddly, to avoid false
+positives. Default ports (port hints): `8080, 8443, 80, 443`.
+
+```bash
+miasma --target 10.0.0.5 --port-range 1-10000 --plugins cve_2025_55752
 ```
 
 ## Development
