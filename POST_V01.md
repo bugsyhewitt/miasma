@@ -246,7 +246,20 @@ vulnerable endpoint)
 
 ---
 
-### 2.4 Traccar CVE-2025-61666 — unauthenticated local file inclusion (Windows)
+### 2.4 Traccar CVE-2025-61666 — unauthenticated local file inclusion (Windows) — ✅ IMPLEMENTED
+
+**Status:** Implemented as plugin `cve_2025_61666` (Phase 2, Rotation 13). Benign,
+read-only probe: fingerprints Traccar via the unauthenticated `/api/server` JSON
+(Traccar-specific keys like `deviceReadonly`/`mapUrl`/`bingKey`) and the root page,
+establishes the direct `/conf/traccar.xml` path as a refusing control (`404`/`403`),
+then reads the same config through a small ordered set of override-servlet
+traversal shapes (forward-slash, Windows backslash, and double-encoded). HIGH when
+the traversal returns `200` with Traccar properties-XML markers (`<entry key=…>`)
+while the direct path refused; MEDIUM when Traccar fingerprints but the LFI is not
+cleanly confirmed. A non-Traccar host and an SPA `index.html` are never flagged.
+The leaked secret **values** are never persisted — evidence records only the config
+*key names* plus a `secret_keys_present` flag (mirroring the `.env`/`.git`
+redaction convention). Default ports: 8082, 80, 443.
 
 **ID:** CVE-2025-61666  
 **Affected:** Traccar 6.1–6.8.1 on Windows  
@@ -449,7 +462,7 @@ total scan time when multiple plugins are specified. I/O-bound probes
 | 9 | Exposed `.git` directory ✅ | Plugin | Small |
 | 10 | Exposed `.env` file ✅ | Plugin | Small |
 | 11 | Spring Cloud Gateway CVE-2025-41243 ✅ | Plugin | Medium |
-| 12 | Traccar CVE-2025-61666 | Plugin | Medium |
+| 12 | Traccar CVE-2025-61666 ✅ | Plugin | Medium |
 | 13 | Service-type targeting | Infrastructure | Medium |
 | 14 | Concurrent plugin execution | Infrastructure | Medium |
 | 15 | Commvault CVE-2025-34028 | Plugin | Medium |

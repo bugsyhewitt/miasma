@@ -213,6 +213,7 @@ its service name as `redis`.
 | `miasma_git_001` | `MIASMA-GIT-001` | Exposed `.git/` directory (source code, commit history, committed secrets). |
 | `miasma_env_001` | `MIASMA-ENV-001` | Exposed `.env` file (database URLs, cloud keys, API keys, app secrets). |
 | `cve_2025_41243` | `CVE-2025-41243` | Spring Cloud Gateway exposed actuator (`/actuator/gateway/routes`) — mutable route table enables SpEL/env injection. |
+| `cve_2025_61666` | `CVE-2025-61666` | Traccar (Windows) unauthenticated LFI via the override servlet — reads `conf/traccar.xml` (DB credentials). |
 
 ### MIASMA-ACTUATOR-001 — Spring Boot Actuator exposure
 
@@ -472,6 +473,47 @@ unauthenticated). Default ports (port hints): `8080, 8443, 80, 443`.
 
 ```bash
 miasma --target 10.0.0.5 --port-range 1-10000 --plugins cve_2025_41243
+```
+
+### CVE-2025-61666 — Traccar unauthenticated LFI (Windows)
+
+Probes for the Traccar (open-source GPS fleet tracking) local file inclusion on
+Windows. Traccar's default install exposes a `DefaultOverrideServlet` without
+authentication; on Windows a path-normalisation failure lets an encoded traversal
+escape the override root and read arbitrary files. The crown jewel is
+`conf/traccar.xml` — the main config — which holds the database JDBC URL and
+credentials. Affected: Traccar 6.1 – 6.8.1 on Windows. The probe is benign and
+read-only — it only *reads* the inert config file, writing nothing:
+
+1. `GET /api/server` — Traccar's unauthenticated server-info JSON. A clean 200
+   carrying Traccar-specific keys (`deviceReadonly`, `mapUrl`, `bingKey`, …) is
+   the primary fingerprint; the root page body is a secondary check.
+2. `GET /conf/traccar.xml` — the LFI target requested **directly**. On a sane
+   install this is not web-servable (`404`/`403`); that refusal is the control.
+3. `GET <override-traversal>` — the same `conf/traccar.xml` reached through the
+   override-servlet traversal. A `200` whose body is the Traccar properties-XML
+   config while the direct path refused confirms the LFI.
+
+A non-Traccar host is **never** flagged, even if it answers oddly, to avoid false
+positives. An SPA `index.html` returned for the traversal path is not the config
+(no properties-XML markers) and is not flagged. Redirects are not followed.
+
+Severity:
+
+- **high** — Traccar fingerprinted, the override traversal returned the
+  `conf/traccar.xml` config (`200` + properties-XML markers) that the direct path
+  refused (`404`/`403`). The LFI read is confirmed.
+- **medium** — the host fingerprints as Traccar but the LFI was not cleanly
+  confirmed (patched, non-Windows, filtered, or the direct path did not refuse) —
+  a candidate worth a manual check.
+
+The leaked secret **values** are never persisted — evidence records only the
+config *key names* present (e.g. `database.password`) plus a `secret_keys_present`
+flag, mirroring the redaction convention of the `.env` and `.git` plugins. Default
+ports (port hints): `8082, 80, 443`.
+
+```bash
+miasma --target 10.0.0.5 --port-range 1-10000 --plugins cve_2025_61666
 ```
 
 ## Development
