@@ -211,6 +211,7 @@ its service name as `redis`.
 | `cve_2025_55752` | `CVE-2025-55752` | Apache Tomcat Rewrite Valve path traversal into `/WEB-INF/` (web.xml disclosure). |
 | `cve_2025_64446` | `CVE-2025-64446` | Fortinet FortiWeb authentication bypass via API path traversal (CISA KEV). |
 | `miasma_git_001` | `MIASMA-GIT-001` | Exposed `.git/` directory (source code, commit history, committed secrets). |
+| `miasma_env_001` | `MIASMA-ENV-001` | Exposed `.env` file (database URLs, cloud keys, API keys, app secrets). |
 
 ### MIASMA-ACTUATOR-001 — Spring Boot Actuator exposure
 
@@ -395,6 +396,43 @@ served and is not flagged. Default ports (port hints): `80, 443, 8080, 8443`.
 
 ```bash
 miasma --target 10.0.0.5 --port-range 1-10000 --plugins miasma_git_001
+```
+
+### MIASMA-ENV-001 — Exposed `.env` file
+
+Probes for a web server that serves its application `.env` file. A served `.env`
+leaks the application's most concentrated bundle of secrets — `DATABASE_URL`,
+`AWS_SECRET_ACCESS_KEY`, API keys, JWT/app signing secrets, SMTP credentials —
+and is among the most common high-impact bug-bounty findings, routinely caused
+by misconfigured Laravel, Node.js, and Django deployments that serve the project
+root statically. It's a misconfiguration, not a discrete CVE. The probe is benign
+and read-only — it fetches a small, inert file at a handful of well-known dotenv
+locations and never writes anything:
+
+1. `GET /.env` — the canonical location.
+2. `GET /.env.production`, `GET /.env.local`, `GET /.env.dev` — Laravel/Node
+   environment-specific variants, checked when `/.env` is absent.
+
+A `200` whose body parses as dotenv content (`KEY=value` assignment lines)
+confirms exposure. A server that returns its SPA `index.html` for every path is
+**not** flagged (HTML has no `KEY=` lines).
+
+Severity:
+
+- **high** — the served file parses as dotenv content **and** at least one key
+  name looks secret-bearing (`SECRET`/`PASSWORD`/`TOKEN`/`API_KEY`/`ACCESS_KEY`/
+  `DATABASE_URL`/`DSN`/…). A live `.env` with real secrets is confirmed.
+- **medium** — the served file parses as dotenv content but exposes only config
+  keys (no recognised secret-bearing key) — still an information-disclosure
+  misconfiguration worth a manual look.
+
+The leaked secret *values* are never persisted: evidence records only the
+exposed key *names*, so the report flags the exposure without storing the
+secrets verbatim. Redirects are not followed (the dotfile must be served
+directly). Default ports (port hints): `80, 443, 8080, 8443`.
+
+```bash
+miasma --target 10.0.0.5 --port-range 1-10000 --plugins miasma_env_001
 ```
 
 ## Development

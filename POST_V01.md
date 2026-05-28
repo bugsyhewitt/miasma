@@ -291,7 +291,17 @@ Confidence: **high**
 
 ---
 
-### 3.2 Exposed `.env` file
+### 3.2 Exposed `.env` file — ✅ IMPLEMENTED
+
+**Status:** Implemented as plugin `miasma_env_001` (Phase 2, Rotation 11).
+Benign, read-only probe: `GET /.env` (then the `/.env.production`, `/.env.local`,
+`/.env.dev` variants) and flags only a body that parses as dotenv content
+(`KEY=value` assignment lines) — an SPA `index.html` returned for every path is
+NOT flagged. HIGH when a secret-bearing key (`SECRET`/`PASSWORD`/`TOKEN`/
+`API_KEY`/`ACCESS_KEY`/`DATABASE_URL`/`DSN`/…) is present; MEDIUM when the served
+file is config-only. The leaked secret **values** are never persisted — evidence
+records only the exposed key *names*. Redirects are not followed. Default ports:
+80, 443, 8080, 8443.
 
 **ID:** MIASMA-ENV-001  
 **Vuln class:** Information disclosure (misconfiguration)
@@ -426,7 +436,7 @@ total scan time when multiple plugins are specified. I/O-bound probes
 | 7 | Apache Tomcat CVE-2025-55752 | Plugin | Medium |
 | 8 | Fortinet FortiWeb CVE-2025-64446 ✅ | Plugin | Medium |
 | 9 | Exposed `.git` directory ✅ | Plugin | Small |
-| 10 | Exposed `.env` file | Plugin | Small |
+| 10 | Exposed `.env` file ✅ | Plugin | Small |
 | 11 | Spring Cloud Gateway CVE-2025-41243 | Plugin | Medium |
 | 12 | Traccar CVE-2025-61666 | Plugin | Medium |
 | 13 | Service-type targeting | Infrastructure | Medium |
