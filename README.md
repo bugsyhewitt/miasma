@@ -167,6 +167,7 @@ confirm — not a weaponized exploit.
 | `cve_2009_3548` | `CVE-2009-3548` | Apache Tomcat default/weak manager credentials. |
 | `miasma_actuator_001` | `MIASMA-ACTUATOR-001` | Exposed Spring Boot Actuator management endpoints (env/secret leak, heap dump). |
 | `miasma_redis_001` | `MIASMA-REDIS-001` | Redis reachable without authentication (PING/INFO handshake). |
+| `cve_2024_23897` | `CVE-2024-23897` | Jenkins CLI unauthenticated arbitrary file read (args4j `@file` expansion). |
 
 ### MIASMA-ACTUATOR-001 — Spring Boot Actuator exposure
 
@@ -221,6 +222,37 @@ Default ports (port hints): `6379, 6380, 16379`.
 
 ```bash
 miasma --target 10.0.0.7 --port-range 1-20000 --plugins miasma_redis_001
+```
+
+### CVE-2024-23897 — Jenkins unauthenticated arbitrary file read
+
+Probes for the Jenkins CLI arbitrary file read (CVSS 9.8, affecting Jenkins
+`<= 2.441` / LTS `<= 2.426.2`). The Jenkins CLI command parser expands any
+argument of the form `@<path>` into that file's contents (an args4j feature),
+and the `/cli` endpoint is reachable without authentication — so an attacker can
+read arbitrary files off the controller (`/etc/passwd`,
+`secrets/initialAdminPassword`, credential XML). The probe is benign: it targets
+only the world-readable `/etc/passwd` and reports the leaked lines as evidence —
+no file is written and no secret-bearing path is read.
+
+1. `GET /login` — fingerprint Jenkins and read the `X-Jenkins` version header.
+2. Drive the CLI download/upload duplex protocol against `/cli?remoting=false`
+   with the args4j-framed command `who-am-i @/etc/passwd`. The resulting CLI
+   error echoes the file's first lines back.
+
+Severity:
+
+- **high** — the CLI leaked `/etc/passwd` content (`root:` marker present in the
+  reply); the file read is confirmed.
+- **medium** — the reported version is within the vulnerable range
+  (weekly `<= 2.441` / LTS `<= 2.426.2`) but the CLI file-read could not be
+  confirmed on this probe (hardened, filtered, or endpoint changed) — worth a
+  manual check.
+
+Default ports (port hints): `8080, 80, 443, 8090`.
+
+```bash
+miasma --target 10.0.0.9 --port-range 1-10000 --plugins cve_2024_23897
 ```
 
 ## Development
