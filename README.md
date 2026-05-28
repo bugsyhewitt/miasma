@@ -210,6 +210,7 @@ its service name as `redis`.
 | `cve_2024_23897` | `CVE-2024-23897` | Jenkins CLI unauthenticated arbitrary file read (args4j `@file` expansion). |
 | `cve_2025_55752` | `CVE-2025-55752` | Apache Tomcat Rewrite Valve path traversal into `/WEB-INF/` (web.xml disclosure). |
 | `cve_2025_64446` | `CVE-2025-64446` | Fortinet FortiWeb authentication bypass via API path traversal (CISA KEV). |
+| `miasma_git_001` | `MIASMA-GIT-001` | Exposed `.git/` directory (source code, commit history, committed secrets). |
 
 ### MIASMA-ACTUATOR-001 — Spring Boot Actuator exposure
 
@@ -362,6 +363,38 @@ positives. Default ports (port hints): `443, 80, 8443`.
 
 ```bash
 miasma --target 10.0.0.5 --port-range 1-10000 --plugins cve_2025_64446
+```
+
+### MIASMA-GIT-001 — Exposed `.git` directory
+
+Probes for a web server that serves its `.git/` directory. When `.git/` is
+reachable, an attacker can reconstruct the entire repository offline — full
+source code, complete commit history, and any secrets (API keys, database
+credentials, `.env` files) that were ever committed, even if later removed.
+Consistently a P1/P2 bug-bounty finding; it's a misconfiguration (usually a
+`git clone` into the web root), not a discrete CVE. The probe is benign and
+read-only — it fetches two small, inert metadata files and never dumps objects
+or reconstructs history:
+
+1. `GET /.git/HEAD` — a genuine `.git/HEAD` is a one-line symbolic ref
+   (`ref: refs/heads/<branch>`) or a raw 40-hex SHA for a detached HEAD. A
+   server that returns its SPA `index.html` for every path is **not** flagged.
+2. `GET /.git/config` — if the remote URL embeds credentials
+   (`://user:pass@host`), that is flagged; the password is **redacted**
+   (`://user:***@`) so the report never persists the leaked secret verbatim.
+
+Severity:
+
+- **high** — `/.git/HEAD` returns `200` with a valid Git ref; the exposed `.git`
+  directory is confirmed. If `/.git/config` also leaks a credential-bearing
+  remote URL, the finding evidence flags it (redacted).
+
+Redirects are not followed: an exposed `.git/HEAD` is served as a static file,
+so a redirect to a login page or SPA route means the dotfile is not directly
+served and is not flagged. Default ports (port hints): `80, 443, 8080, 8443`.
+
+```bash
+miasma --target 10.0.0.5 --port-range 1-10000 --plugins miasma_git_001
 ```
 
 ## Development
