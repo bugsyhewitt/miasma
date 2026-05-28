@@ -209,6 +209,7 @@ its service name as `redis`.
 | `miasma_redis_001` | `MIASMA-REDIS-001` | Redis reachable without authentication (PING/INFO handshake). |
 | `cve_2024_23897` | `CVE-2024-23897` | Jenkins CLI unauthenticated arbitrary file read (args4j `@file` expansion). |
 | `cve_2025_55752` | `CVE-2025-55752` | Apache Tomcat Rewrite Valve path traversal into `/WEB-INF/` (web.xml disclosure). |
+| `cve_2025_64446` | `CVE-2025-64446` | Fortinet FortiWeb authentication bypass via API path traversal (CISA KEV). |
 
 ### MIASMA-ACTUATOR-001 — Spring Boot Actuator exposure
 
@@ -325,6 +326,42 @@ positives. Default ports (port hints): `8080, 8443, 80, 443`.
 
 ```bash
 miasma --target 10.0.0.5 --port-range 1-10000 --plugins cve_2025_55752
+```
+
+### CVE-2025-64446 — Fortinet FortiWeb authentication bypass
+
+Probes for the FortiWeb (Fortinet WAF appliance) authentication bypass added to
+the CISA KEV catalog in November 2025 (active exploitation observed from October
+2025). A request prefixed with a *valid* API path (`/api/v2.0/cmdb/…`) and then
+traversed back down to a privileged CGI handler is authorised against the
+harmless prefix the router sees first, but the dot-segments silently re-target it
+at an administrative endpoint — yielding unauthenticated admin access. The probe
+is benign and read-only — it only *reads* the inert `system/status` endpoint and
+performs no privileged action (no user creation, no config write):
+
+1. `GET /` and `GET /login` — fingerprint FortiWeb via the `Server`/`Set-Cookie`
+   headers and the login page markers.
+2. `GET /api/v2.0/cmdb/system/status` — the *direct* authenticated endpoint,
+   which a sane appliance refuses (`401`/`403`) without a session. This is the
+   control.
+3. `GET <traversal>/system/status` — the same status data reached through a
+   traversal-crafted path. A `200` carrying status JSON (`serial`/`version`/
+   `build` markers) while the direct path refused confirms the bypass.
+
+Severity:
+
+- **high** — FortiWeb fingerprinted, the traversal path returned privileged
+  status data (`200` + status markers), and the direct path refused (`401`/
+  `403`). The auth bypass is confirmed read-only.
+- **medium** — the host fingerprints as FortiWeb but the bypass was not cleanly
+  confirmed (traversal answered `200` without status markers, or the direct path
+  did not refuse) — worth a manual check.
+
+A non-FortiWeb host is never flagged, even if it answers oddly, to avoid false
+positives. Default ports (port hints): `443, 80, 8443`.
+
+```bash
+miasma --target 10.0.0.5 --port-range 1-10000 --plugins cve_2025_64446
 ```
 
 ## Development

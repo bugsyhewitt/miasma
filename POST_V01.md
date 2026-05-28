@@ -151,7 +151,17 @@ Confidence: **medium** (requires Rewrite Valve to be configured)
 
 ## Tier 2 — High value, slightly more complex probe
 
-### 2.1 Fortinet FortiWeb CVE-2025-64446 — auth bypass via path traversal
+### 2.1 Fortinet FortiWeb CVE-2025-64446 — auth bypass via path traversal — ✅ IMPLEMENTED
+
+**Status:** Implemented as plugin `cve_2025_64446` (Phase 2, Rotation 9). Benign,
+read-only probe: fingerprints FortiWeb via `/` and `/login` (Server/Set-Cookie/
+body markers), establishes the direct `/api/v2.0/cmdb/system/status` endpoint as
+a refusing control (`401`/`403`), then reads the same privileged status JSON
+through a small ordered set of traversal-crafted paths. HIGH when the traversal
+returns `200` with status markers (`serial`/`version`/`build`) while the direct
+path refused; MEDIUM when FortiWeb fingerprints but the bypass is not cleanly
+confirmed (no markers, or the direct path did not refuse). No privileged action
+is ever performed.
 
 **ID:** CVE-2025-64446  
 **CVSS:** Critical (added to CISA KEV November 2025)  
@@ -406,7 +416,7 @@ total scan time when multiple plugins are specified. I/O-bound probes
 | 5 | `--output-file` CLI flag ✅ | Infrastructure | Small |
 | 6 | Plugin `port_hint`/`service_hint` ✅ | Infrastructure | Small |
 | 7 | Apache Tomcat CVE-2025-55752 | Plugin | Medium |
-| 8 | Fortinet FortiWeb CVE-2025-64446 | Plugin | Medium |
+| 8 | Fortinet FortiWeb CVE-2025-64446 ✅ | Plugin | Medium |
 | 9 | Exposed `.git` directory | Plugin | Small |
 | 10 | Exposed `.env` file | Plugin | Small |
 | 11 | Spring Cloud Gateway CVE-2025-41243 | Plugin | Medium |
