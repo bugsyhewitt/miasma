@@ -352,7 +352,15 @@ would cut false-probe noise and reduce scan time significantly.
 
 ---
 
-### I.2 Plugin metadata: `port_hint` and `service_hint` fields
+### I.2 Plugin metadata: `port_hint` and `service_hint` fields — ✅ IMPLEMENTED
+
+**Status:** Implemented (Phase 2). Standardised optional `port_hint: list[int]`
+and `service_hint: list[str]` metadata fields. The runner's `is_applicable`
+filter skips a plugin only when recon found open ports, the plugin declares a
+hint, and no open port/service matches — so irrelevant plugins (e.g. the Redis
+plugin against an SSH-only host) are skipped without ever risking a dropped
+finding. `default_ports` is kept as a backwards-compatible alias for
+`port_hint`. All shipped CVE/misconfig plugins now declare both hints.
 
 Add optional `port_hint: list[int]` and `service_hint: list[str]` to plugin
 metadata so the runner can skip obviously irrelevant plugins (e.g., Redis
@@ -396,7 +404,7 @@ total scan time when multiple plugins are specified. I/O-bound probes
 | 3 | Elasticsearch unauthenticated access | Plugin | Small |
 | 4 | Jenkins CVE-2024-23897 file read | Plugin | Small-Medium |
 | 5 | `--output-file` CLI flag ✅ | Infrastructure | Small |
-| 6 | Plugin `port_hint`/`service_hint` | Infrastructure | Small |
+| 6 | Plugin `port_hint`/`service_hint` ✅ | Infrastructure | Small |
 | 7 | Apache Tomcat CVE-2025-55752 | Plugin | Medium |
 | 8 | Fortinet FortiWeb CVE-2025-64446 | Plugin | Medium |
 | 9 | Exposed `.git` directory | Plugin | Small |

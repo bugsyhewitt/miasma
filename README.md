@@ -130,6 +130,9 @@ metadata = {
     "description": "Reports a finding when /admin returns 200 without auth.",
     "confidence": "high",
     "references": ["https://nvd.nist.gov/vuln/detail/CVE-2024-12345"],
+    # Optional targeting hints — see "Targeting hints" below.
+    "port_hint": [8080, 8443],
+    "service_hint": ["http", "https"],
 }
 
 
@@ -166,6 +169,35 @@ miasma --target 10.0.0.5 --plugins cve_2024_12345
 Keep probes **benign**: read-only verification, no exploitation, no state
 change. The goal is high-confidence "this is real" evidence for a human to
 confirm — not a weaponized exploit.
+
+### Targeting hints (`port_hint` / `service_hint`)
+
+Two optional metadata fields let the runner **skip plugins that obviously
+can't match** a target, cutting wasted network round-trips:
+
+| Field | Type | Meaning |
+|---|---|---|
+| `port_hint` | `list[int]` | Ports this plugin cares about (e.g. `[6379, 6380]` for Redis). |
+| `service_hint` | `list[str]` | nmap service-name substrings this plugin cares about (e.g. `["redis"]`, `["http", "https"]`). |
+
+A plugin is **skipped** for a target only when *all* of these hold, so a real
+finding is never silently dropped:
+
+1. recon found at least one open port (if recon found nothing, the plugin
+   always runs and falls back to its own default-port ordering), **and**
+2. the plugin declares at least one of `port_hint` / `service_hint`, **and**
+3. none of the open ports match a declared `port_hint`, **and**
+4. none of the open ports' nmap service names contain a declared
+   `service_hint` (case-insensitive substring match).
+
+A plugin that declares neither hint always runs (it opts out of filtering —
+this is how `test_always_finds` behaves). `port_hint` is the canonical field;
+`default_ports` is accepted as a backwards-compatible alias for plugins that
+predate the convention.
+
+This means a Redis plugin won't probe an SSH-only host, but a Redis instance
+listening on a non-standard port still gets caught as long as nmap fingerprints
+its service name as `redis`.
 
 ## Bundled plugins
 

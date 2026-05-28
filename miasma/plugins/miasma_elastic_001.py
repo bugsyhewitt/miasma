@@ -63,6 +63,10 @@ metadata = {
     ],
     # Ports the probe will try, in order. 9300 is the binary transport port;
     # httpx will fail with a connection error which is silently swallowed.
+    # port_hint is the canonical field the runner reads to skip irrelevant
+    # plugins; default_ports is kept as the in-probe fallback alias.
+    "port_hint": [9200, 9201, 9300],
+    "service_hint": ["elasticsearch", "http"],
     "default_ports": [9200, 9201, 9300],
 }
 
