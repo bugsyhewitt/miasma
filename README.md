@@ -228,6 +228,7 @@ its service name as `redis`.
 | `miasma_env_001` | `MIASMA-ENV-001` | Exposed `.env` file (database URLs, cloud keys, API keys, app secrets). |
 | `cve_2025_41243` | `CVE-2025-41243` | Spring Cloud Gateway exposed actuator (`/actuator/gateway/routes`) — mutable route table enables SpEL/env injection. |
 | `cve_2025_61666` | `CVE-2025-61666` | Traccar (Windows) unauthenticated LFI via the override servlet — reads `conf/traccar.xml` (DB credentials). |
+| `cve_2025_34028` | `CVE-2025-34028` | Commvault Command Center pre-auth SSRF→RCE — version-fingerprint of the affected 11.38 Innovation Release (CISA KEV). |
 
 ### MIASMA-ACTUATOR-001 — Spring Boot Actuator exposure
 
@@ -528,6 +529,47 @@ ports (port hints): `8082, 80, 443`.
 
 ```bash
 miasma --target 10.0.0.5 --port-range 1-10000 --plugins cve_2025_61666
+```
+
+### CVE-2025-34028 — Commvault Command Center pre-auth SSRF / RCE
+
+Fingerprints Commvault Command Center — the web console for the widely deployed
+Commvault enterprise backup suite — and flags the affected **11.38 Innovation
+Release** line, which exposes `/deployWebpackage.do` without authentication and
+chains to server-side request forgery and pre-auth remote code execution. Backup
+appliances are crown-jewel ransomware targets, so the CVE is on CISA's KEV
+catalog.
+
+This probe is **version-fingerprint only** and never touches the vulnerable
+endpoint — triggering `/deployWebpackage.do` is an active exploitation step and is
+deliberately out of scope. The flow is benign and read-only:
+
+1. `GET /commandcenter/` (then `/webconsole/`, `/commandcenter/login`, `/`) —
+   fingerprint Command Center via the login-page body, the `Server` header, and
+   `cv_*` login cookies. The first path that fingerprints wins for that port.
+2. Read the advertised build string — Command Center exposes its release as a
+   dotted `11.38` / `11.38.x` or an `SP38` service-pack tag on the login page. The
+   `11.38` line is the affected window.
+
+A non-Commvault host is **never** flagged, even if it coincidentally mentions a
+`11.38`-ish string. A Commvault host on a known-safe release (e.g. `11.36`) is a
+clean negative, not a candidate. Redirects are not followed.
+
+Severity:
+
+- **high** — Commvault Command Center fingerprinted **and** an affected `11.38`
+  Innovation Release version string is present. The pre-auth SSRF→RCE surface is
+  exposed; flag for an operator-driven active check (which miasma does not run).
+- **medium** — Command Center fingerprinted but **no** version string could be
+  read (hardened login page or stripped banner) — worth a manual version check.
+
+The vulnerable `/deployWebpackage.do` endpoint is **never** contacted and no
+credentials are submitted; evidence records only the fingerprint path, `Server`
+header, and the version string read from the public login page. Default ports
+(port hints): `443, 80, 8443`.
+
+```bash
+miasma --target 10.0.0.5 --port-range 1-10000 --plugins cve_2025_34028
 ```
 
 ## Development

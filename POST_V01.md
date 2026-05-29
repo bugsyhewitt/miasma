@@ -221,7 +221,20 @@ Confidence: **medium** (exposure confirmation without exploitation)
 
 ---
 
-### 2.3 Commvault Command Center CVE-2025-34028 — unauthenticated SSRF/pre-auth RCE
+### 2.3 Commvault Command Center CVE-2025-34028 — unauthenticated SSRF/pre-auth RCE — ✅ IMPLEMENTED
+
+**Status:** Implemented as plugin `cve_2025_34028` (Phase 2, Rotation 15).
+Benign, read-only, **version-fingerprint-only** probe: fingerprints Commvault
+Command Center via the login console (`/commandcenter/`, `/webconsole/`,
+`/commandcenter/login`, `/`) using body/`Server`/`cv_*`-cookie markers, then reads
+the advertised build string and flags the affected `11.38` Innovation Release line
+(dotted `11.38`/`11.38.x` or an `SP38` tag). HIGH when Commvault fingerprints AND
+an affected `11.38` version is present; MEDIUM when Command Center fingerprints but
+no version string could be read (hardened/stripped login page). A non-Commvault
+host and a Commvault host on a known-safe release (e.g. `11.36`) are never flagged.
+The vulnerable `/deployWebpackage.do` endpoint is **never** contacted — triggering
+it is active SSRF/RCE and out of scope; this is a fingerprint flag for
+human-driven confirmation. Default ports: 443, 80, 8443.
 
 **ID:** CVE-2025-34028  
 **CVSS:** Critical  
@@ -477,7 +490,7 @@ total scan time when multiple plugins are specified. I/O-bound probes
 | 12 | Traccar CVE-2025-61666 ✅ | Plugin | Medium |
 | 13 | Service-type targeting | Infrastructure | Medium |
 | 14 | Concurrent plugin execution ✅ | Infrastructure | Medium |
-| 15 | Commvault CVE-2025-34028 | Plugin | Medium |
+| 15 | Commvault CVE-2025-34028 ✅ | Plugin | Medium |
 | 16 | Quest KACE CVE-2025-32975 | Plugin | Small |
 | 17 | Kubernetes API unauthenticated | Plugin | Small |
 
