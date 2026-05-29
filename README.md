@@ -224,6 +224,7 @@ its service name as `redis`.
 | `cve_2024_23897` | `CVE-2024-23897` | Jenkins CLI unauthenticated arbitrary file read (args4j `@file` expansion). |
 | `cve_2025_55752` | `CVE-2025-55752` | Apache Tomcat Rewrite Valve path traversal into `/WEB-INF/` (web.xml disclosure). |
 | `cve_2025_64446` | `CVE-2025-64446` | Fortinet FortiWeb authentication bypass via API path traversal (CISA KEV). |
+| `cve_2024_55591` | `CVE-2024-55591` | Fortinet FortiOS / FortiProxy authentication bypass via the Node.js websocket namespace — unauthenticated access to privileged `jsconsole` API handlers (CISA KEV, CVSS 9.6). |
 | `miasma_git_001` | `MIASMA-GIT-001` | Exposed `.git/` directory (source code, commit history, committed secrets). |
 | `miasma_env_001` | `MIASMA-ENV-001` | Exposed `.env` file (database URLs, cloud keys, API keys, app secrets). |
 | `cve_2025_41243` | `CVE-2025-41243` | Spring Cloud Gateway exposed actuator (`/actuator/gateway/routes`) — mutable route table enables SpEL/env injection. |
@@ -388,6 +389,44 @@ positives. Default ports (port hints): `443, 80, 8443`.
 
 ```bash
 miasma --target 10.0.0.5 --port-range 1-10000 --plugins cve_2025_64446
+```
+
+### CVE-2024-55591 — Fortinet FortiOS / FortiProxy authentication bypass
+
+Probes for the FortiOS / FortiProxy authentication bypass added to the CISA KEV
+catalog in January 2025 (CVSS 9.6, active exploitation confirmed by Fortinet).
+This is a *different* vulnerability from CVE-2025-64446 above: a different
+product line (FortiOS/FortiProxy vs the FortiWeb WAF) and a different mechanism.
+The appliance ships a Node.js websocket module behind the management interface;
+an unauthenticated request crafted into the internal `/ws/` namespace reaches
+privileged `jsconsole` API handlers without a session, yielding super-admin
+access (create admins, mutate config, harvest credentials). The probe is benign
+and read-only — it only *reads* the inert `system/status` endpoint and performs
+no privileged action (no admin creation, no config write):
+
+1. `GET /` and `GET /login` — fingerprint FortiOS/FortiProxy via the
+   `Server`/`Set-Cookie` headers and the login page markers.
+2. `GET /api/v2/cmdb/system/status` — the *direct* authenticated endpoint, which
+   a sane appliance refuses (`401`/`403`) without a session. This is the control.
+3. `GET <ws-namespace>/.../system/status` — the same status data reached through
+   the websocket-namespace path the bypass abuses. A `200` carrying status JSON
+   (`serial`/`version`/`build` markers) while the direct path refused confirms
+   the bypass.
+
+Severity:
+
+- **high** — FortiOS/FortiProxy fingerprinted, the websocket-namespace path
+  returned privileged status data (`200` + status markers), and the direct path
+  refused (`401`/`403`). The auth bypass is confirmed read-only.
+- **medium** — the host fingerprints as FortiOS/FortiProxy but the bypass was not
+  cleanly confirmed (path answered `200` without status markers, or the direct
+  path did not refuse) — worth a manual check.
+
+A non-Forti host is never flagged, even if it answers oddly, to avoid false
+positives. Default ports (port hints): `443, 80, 8443, 10443`.
+
+```bash
+miasma --target 10.0.0.7 --port-range 1-10000 --plugins cve_2024_55591
 ```
 
 ### MIASMA-GIT-001 — Exposed `.git` directory
