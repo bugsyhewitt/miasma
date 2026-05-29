@@ -241,6 +241,7 @@ its service name as `redis`.
 | `miasma_solr_001` | `MIASMA-SOLR-001` | Apache Solr Admin API reachable without authentication — `/solr/admin/info/system` fingerprints Solr and leaks the JVM/OS/version banner, and an unauthenticated `/solr/admin/cores` enumerates every configured core (high); the exposure gates the CVE-2019-17558 / CVE-2017-12629 RCE chains. |
 | `miasma_prometheus_001` | `MIASMA-PROMETHEUS-001` | Prometheus HTTP API reachable without authentication — `/api/v1/status/buildinfo` fingerprints Prometheus and leaks the version, `/api/v1/targets` enumerates every scrape target (the authoritative internal service inventory, high), and `/api/v1/status/config` can disclose scrape-config credentials (high). Prometheus ships with no auth, authz, or TLS by default. |
 | `miasma_consul_001` | `MIASMA-CONSUL-001` | HashiCorp Consul HTTP API reachable without an ACL token — `/v1/agent/self` fingerprints the agent and leaks the version, `/v1/catalog/services` enumerates every registered service (the authoritative internal inventory, high), and `/v1/kv/?recurse=true` can disclose secrets stored in the recursive Key/Value store (high). Consul ships with its ACL system disabled by default. |
+| `miasma_etcd_001` | `MIASMA-ETCD-001` | etcd client API reachable without a credential — `GET /version` fingerprints etcd and leaks the server version, `POST /v3/maintenance/status` confirms the v3 API answers unauthenticated and leaks the cluster status / db size, and a value-free `POST /v3/kv/range` confirms the entire keyspace is readable and sizes it (high); key names are scanned for Kubernetes-secret / credential markers. etcd ships with authentication disabled by default and is the Kubernetes control-plane store. |
 
 ### MIASMA-ACTUATOR-001 — Spring Boot Actuator exposure
 
@@ -1039,6 +1040,58 @@ contacted over HTTPS; the others over plain HTTP.
 
 ```bash
 miasma --target 10.0.0.10 --port-range 1-20000 --plugins miasma_consul_001
+```
+
+### MIASMA-ETCD-001 — etcd unauthenticated client API access
+
+etcd — the distributed key/value store that backs Kubernetes and many service
+meshes, lock services, and feature-flag systems — ships with **authentication
+disabled by default**. Until an operator enables RBAC (`etcdctl auth enable`
+with a configured root user) or fronts the client port with mutual-TLS, the
+etcd v3 client API on the default port 2379 answers every request with no
+credential. etcd v3 exposes that API both as gRPC and, via the built-in
+gRPC-gateway, as plain JSON-over-HTTP on the same port — the gateway is what the
+probe speaks. When etcd is the Kubernetes control-plane store it holds **every**
+cluster Secret (service-account tokens, TLS private keys, registry credentials)
+in plaintext, so an unauthenticated etcd is a P1/CRITICAL on the internal
+network. The probe runs the minimal requests a human would run by hand, and is
+benign and read-only:
+
+1. `GET /version` — fingerprints etcd; a genuine reply is a JSON object carrying
+   the `etcdserver` and `etcdcluster` keys unique to the gRPC-gateway, and
+   `etcdserver` is the running version. This identifies the server but is
+   **not** sufficient — `/version` answers even when the v3 KV API requires
+   authentication.
+2. `POST /v3/maintenance/status` — confirms the v3 client API answers without a
+   credential and returns the cluster status (leader, raft term, `dbSize`). When
+   auth is enabled this returns `401` / `user name is empty` instead, and the
+   probe reports nothing on that port.
+3. `POST /v3/kv/range` — a single all-keys range read with `count_only` then
+   `keys_only` set, confirming the keyspace is readable and sizing it. Because
+   `keys_only` is set the server returns only the (already-public) key **names**
+   and never any secret value bytes; the key names are scanned in-memory (never
+   stored) for Kubernetes-secret / credential markers (`/secrets/`, `token`,
+   `password`, `serviceaccount`, …) to raise severity.
+
+No key is written, deleted, or compacted, and no auth-mutation endpoint is
+touched. Evidence records the etcd version, the on-disk db size, the key count,
+and whether the key names leaked credential markers — but never the raw key
+names or any value.
+
+**Severity:**
+- `HIGH` — the v3 API answers without a credential **and** the keyspace range
+  read confirms one or more keys are readable, OR a returned key name matches a
+  Kubernetes-secret / credential marker (the entire keyspace, secrets included,
+  is exfiltratable).
+- `MEDIUM` — etcd is fingerprinted and the v3 API answers without a credential,
+  but the keyspace read was empty or could not be sized (still an
+  unauthenticated control-plane API worth reporting).
+
+Default ports (port hints): `2379, 4001, 2380, 80, 443`. Port `443` is contacted
+over HTTPS; the others over plain HTTP.
+
+```bash
+miasma --target 10.0.0.10 --port-range 1-20000 --plugins miasma_etcd_001
 ```
 
 ## Development
