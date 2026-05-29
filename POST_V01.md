@@ -643,6 +643,7 @@ total scan time when multiple plugins are specified. I/O-bound probes
 | 20 | Ivanti EPMM CVE-2026-1340 unauthenticated RCE ✅ | Plugin | Small |
 | 21 | Docker daemon unauthenticated TCP API ✅ | Plugin | Small |
 | 24 | Grafana unauthenticated / default-credential access ✅ | Plugin | Small |
+| 31 | RabbitMQ management API unauthenticated / default-credential access ✅ | Plugin | Small |
 
 ---
 
@@ -806,3 +807,57 @@ inventory counters (`curr_items`, `total_items`, `bytes`, `curr_connections`,
 **STATUS: ✅ IMPLEMENTED (R30, 2026-05-29).** Plugin `miasma_memcached_001.py`,
 16 tests in `tests/test_memcached.py`. Ports: 11211, 11210, 11212.
 Total tests: 410 → 426 (+16).
+
+## Rotation 31 fresh-gap addition
+
+### 31. RabbitMQ Management API Unauthenticated / Default-Credential Access — MIASMA-RABBITMQ-001
+
+**Rank: fresh gap (R31, 2026-05-29)** — The dispatched options were Apache
+Cassandra unauthenticated access (still queued from R30) or RabbitMQ
+management API exposure. Both were unshipped after an audit of the plugin
+directory. RabbitMQ was selected as the higher-value gap: (1) the HTTP
+management API is a clean direct parallel to the existing Grafana plugin
+(default-credential + anonymous-access matrix over a JSON API), where a
+Cassandra probe would still require constructing binary native-protocol
+OP_STARTUP frames — more probe code with no additional finding-quality
+benefit; (2) RabbitMQ is enormously more common in internet-facing estates
+than Cassandra and the factory `guest:guest` credential is a recurring P1
+on bug-bounty programs in messaging-heavy estates (payments, fintech,
+logistics); (3) the broker overview is a clean live-vs-empty fingerprint
+analogous to the Grafana org/health checks. Cassandra unauthenticated
+access remains a queued candidate for a future rotation.
+
+**What:** RabbitMQ is the dominant open-source AMQP message broker.
+Application traffic flowing through it — payment events, password-reset jobs,
+password hashes en route to a hashing worker, audit logs, internal RPC
+payloads — is some of the most sensitive in-flight data in any system. A
+fresh broker ships with the `guest:guest` administrator account; in versions
+`>= 3.3` the guest account is restricted to `loopback_users = [guest]`, but
+operators routinely re-enable remote guest access (`loopback_users = none`),
+and many proxied / containerised deployments expose `15672` to the LAN or
+internet with the loopback restriction effectively bypassed by the reverse
+proxy. Anonymous read of `/api/overview` exposes the queue inventory,
+exchange topology, connected client list, and broker / OS / Erlang version
+fingerprint; default-credential access grants full broker control.
+
+**Probe:** Read-only fingerprint + one optional default-credential check.
+`GET /api/overview` (no auth) confirms anonymous read when it answers 200
+with `rabbitmq_version` / `management_version` keys (HIGH). When it answers
+401 with the `WWW-Authenticate: Basic realm="RabbitMQ Management"` challenge
+(positive RabbitMQ fingerprint), a single `GET /api/overview` with HTTP
+Basic `guest:guest` confirms the default credential (CRITICAL). A non-
+RabbitMQ 200 or a 401 from an unrelated service (no RabbitMQ realm marker)
+never triggers a credential attempt — that would be probing arbitrary
+services. No queue declared / deleted, no message published / consumed, no
+user reset; exactly one credential pair attempted (not a brute force).
+
+**Severity:**
+- CRITICAL: RabbitMQ fingerprints AND `guest:guest` is accepted on
+  `/api/overview` (full administrator account reachable remotely).
+- HIGH: RabbitMQ fingerprints AND `/api/overview` answers 200 with no
+  authentication challenge (anonymous broker read enabled).
+
+**STATUS: ✅ IMPLEMENTED (R31, 2026-05-29).** Plugin `miasma_rabbitmq_001.py`,
+20 tests in `tests/test_rabbitmq.py`. Ports: 15672 (HTTP management),
+15671 (HTTPS management), 80, 443 (HTTPS reverse-proxy fronts).
+Total tests: 426 → 446 (+20).

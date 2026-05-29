@@ -244,6 +244,7 @@ its service name as `redis`.
 | `miasma_etcd_001` | `MIASMA-ETCD-001` | etcd client API reachable without a credential — `GET /version` fingerprints etcd and leaks the server version, `POST /v3/maintenance/status` confirms the v3 API answers unauthenticated and leaks the cluster status / db size, and a value-free `POST /v3/kv/range` confirms the entire keyspace is readable and sizes it (high); key names are scanned for Kubernetes-secret / credential markers. etcd ships with authentication disabled by default and is the Kubernetes control-plane store. |
 | `miasma_zookeeper_001` | `MIASMA-ZOOKEEPER-001` | Apache ZooKeeper reachable without transport authentication — the `ruok`→`imok` four-letter-word (4lw) handshake fingerprints ZooKeeper, `srvr` confirms the admin surface answers unauthenticated and leaks the version / mode / runtime summary (high), and `envi` is scanned for credential-bearing JVM system-property names (high). ZooKeeper listens on 2181 with no connection-level auth by default and backs Kafka/HBase/SolrCloud/Hadoop. |
 | `miasma_memcached_001` | `MIASMA-MEMCACHED-001` | Memcached reachable on its TCP client port without authentication — `version` fingerprints Memcached via the `VERSION <semver>` banner, and `stats` confirms the ASCII text-protocol admin surface answers unauthenticated and leaks the inventory counters (`curr_items`, `total_items`, `bytes`); a live cache (`curr_items > 0`, high) means an unauthenticated peer can read every cached value (routinely application session data, JWTs, password-reset tokens). Memcached ships with no auth/TLS by default; 11211/udp is also the long-running UDP amplification reflector (CVE-2018-1000115). |
+| `miasma_rabbitmq_001` | `MIASMA-RABBITMQ-001` | RabbitMQ management API reachable with the factory `guest:guest` credential or with anonymous read enabled — `/api/overview` fingerprints the broker via the `rabbitmq_version` / `management_version` JSON keys, an anonymous 200 confirms anonymous-read access (high), and a single `guest:guest` Basic-auth GET confirms default-credential exposure (critical). Either path lets an unauthenticated peer read the broker topology (queues, exchanges, connected clients) and grants full broker control (queue declare/delete, publish/consume, user management). |
 
 ### MIASMA-ACTUATOR-001 — Spring Boot Actuator exposure
 
@@ -1187,6 +1188,57 @@ Default ports (port hints): `11211, 11210, 11212`.
 
 ```bash
 miasma --target 10.0.0.11 --port-range 1-20000 --plugins miasma_memcached_001
+```
+
+### MIASMA-RABBITMQ-001 — RabbitMQ management API unauthenticated / default-credential access
+
+RabbitMQ is the dominant open-source AMQP message broker. Application traffic
+flowing through it — payment events, password-reset jobs, password hashes en
+route to a hashing worker, audit logs, internal RPC payloads — is some of the
+most sensitive in-flight data in any system. Two recurring misconfigurations
+turn that exposure into a P1/critical finding: the factory `guest:guest`
+administrator credential is frequently reachable remotely when the loopback
+restriction is disabled or bypassed by a reverse proxy, and operators
+occasionally configure the management API to accept unauthenticated reads from
+the proxy's network. Either path lets an unauthenticated peer read the full
+broker topology and, through the same HTTP API, publish/consume on any vhost,
+declare/delete queues and exchanges, and reset users — full broker takeover.
+The probe fingerprints RabbitMQ first, then runs the two minimal checks a
+human would run by hand, and is benign and read-only:
+
+1. `GET /api/overview` — with no credentials.
+   - 200 with a body carrying `rabbitmq_version` / `management_version` =>
+     anonymous read of the broker is confirmed (HIGH).
+   - 401 carrying a `WWW-Authenticate: Basic realm="RabbitMQ Management"`
+     challenge => RabbitMQ fingerprinted, auth enforced; proceed to step 2.
+   - Anything else (not RabbitMQ, or a 401 from an unrelated service without
+     the RabbitMQ realm marker) => skip this port; never flagged.
+
+2. `GET /api/overview` with HTTP Basic `guest:guest` — only after the
+   RabbitMQ fingerprint is confirmed. A 200 with the broker overview body
+   confirms the factory `guest:guest` administrator credential is accepted
+   remotely (CRITICAL). The single documented factory pair is the only
+   credential ever attempted — this is a misconfiguration check, not a brute
+   force.
+
+No queue is declared or deleted, no message is published or consumed, no
+binding is mutated, no user is reset, and no admin endpoint
+(`/api/users/*`, `/api/policies/*`, `/api/vhosts/*`) is touched. Evidence
+records only the host, port, broker version, RabbitMQ management version, and
+Erlang version — never the queue inventory, exchange list, or any message
+content.
+
+**Severity:**
+- `CRITICAL` — RabbitMQ fingerprints AND `guest:guest` is accepted on
+  `/api/overview` (full administrator account reachable remotely).
+- `HIGH` — RabbitMQ fingerprints AND `/api/overview` answers 200 with no
+  authentication challenge (anonymous broker read enabled).
+
+Default ports (port hints): `15672, 15671, 80, 443`. Ports `15671` and `443`
+are contacted over HTTPS; the others over plain HTTP.
+
+```bash
+miasma --target 10.0.0.12 --port-range 1-20000 --plugins miasma_rabbitmq_001
 ```
 
 ## Development
