@@ -232,6 +232,7 @@ its service name as `redis`.
 | `cve_2025_32975` | `CVE-2025-32975` | Quest KACE SMA unauthenticated authentication bypass — version-fingerprint of builds below the fixed 14.1 line (CISA KEV, CVSS 10.0). |
 | `miasma_k8s_001` | `MIASMA-K8S-001` | Kubernetes API server reachable without authentication (anonymous-auth) — `/version` build leak plus anonymous `/api/v1/namespaces` enumeration. |
 | `cve_2025_3248` | `CVE-2025-3248` | Langflow unauthenticated RCE via `/api/v1/validate/code` — version-fingerprint of builds below the fixed 1.3.0 line (CISA KEV, CVSS 9.8). |
+| `cve_2025_0282` | `CVE-2025-0282` | Ivanti Connect Secure pre-auth stack-overflow RCE — version-fingerprint of appliances below the fixed 22.7R2.5 line (CISA KEV, CVSS 9.0). |
 
 ### MIASMA-ACTUATOR-001 — Spring Boot Actuator exposure
 
@@ -688,6 +689,44 @@ ever sent. Default ports (port hints): `7860, 80, 443, 8080, 8443`.
 
 ```bash
 miasma --target 10.0.0.5 --port-range 1-10000 --plugins cve_2025_3248
+```
+
+### CVE-2025-0282 — Ivanti Connect Secure pre-auth stack-overflow RCE
+
+Detects an [Ivanti Connect Secure](https://www.ivanti.com/) (formerly Pulse
+Connect Secure) / Policy Secure / Neurons for ZTA gateway on a build affected by
+**CVE-2025-0282** (CVSS 9.0, CISA KEV January 2025). Before `22.7R2.5` the web
+component contains an **unauthenticated** stack-based buffer overflow allowing
+pre-auth remote code execution; it was exploited in the wild by a China-nexus
+actor deploying the SPAWN malware family. The probe is **version-fingerprint
+only** — the vulnerability is a memory-corruption overflow, so actually
+triggering it would crash or compromise the appliance and is out of scope. No
+overflow payload is ever sent; the flow is benign and read-only:
+
+1. `GET /dana-na/nc/nc_gina_ver.txt` — Ivanti's unauthenticated GINA client
+   version file, which is both an Ivanti fingerprint **and** the affected-version
+   source in one request. `/dana-na/auth/url_default/welcome.cgi`, `/dana-na/`,
+   and `/` are tried as fallbacks to fingerprint Ivanti when the version file is
+   stripped.
+2. The advertised build (Ivanti's `MAJOR.MINORRn.m` form, e.g. `22.7R2.4`) is
+   compared to the fixed `22.7R2.5` line; any build strictly below it is the
+   affected window.
+
+Severity:
+
+- **high** — the host fingerprints as Ivanti Connect Secure **and** an affected
+  `< 22.7R2.5` version is present. The pre-auth RCE surface is exposed; flagged
+  for an operator-driven active check.
+- **medium** — Ivanti fingerprints but no version string could be read
+  (hardened/stripped appliance) — worth a manual version check.
+
+A non-Ivanti host (a bare version-looking token without an Ivanti marker is never
+treated as a fingerprint) and an Ivanti appliance on a fixed release
+(`22.7R2.5`+) are **never** flagged. Redirects are not followed and no
+`Authorization` header is ever sent. Default ports (port hints): `443, 80, 8443`.
+
+```bash
+miasma --target 10.0.0.5 --port-range 1-10000 --plugins cve_2025_0282
 ```
 
 ## Development
