@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import importlib
 import pkgutil
+from concurrent.futures import ThreadPoolExecutor
 from types import ModuleType
 
 import miasma.plugins as plugins_pkg
@@ -97,33 +98,76 @@ def is_applicable(module: ModuleType, target: Target) -> bool:
     return False
 
 
-def run_plugins(target: Target, plugin_names: list[str]) -> list[Finding]:
+def _probe_one(name: str, module: ModuleType, target: Target) -> Finding | None:
+    """Run a single plugin's probe with error isolation.
+
+    Returns the plugin's :class:`Finding`, ``None`` when the plugin reports
+    nothing, or an ``"error"``-confidence Finding when the probe raised — one
+    broken plugin must never abort the whole run, sequential or concurrent.
+    """
+    try:
+        return module.probe(target)
+    except Exception as exc:  # one plugin must not kill the whole run
+        return Finding(
+            vuln_id=module.metadata.get("vuln_id", name),
+            host=target.host,
+            confidence="error",
+            evidence={"error": repr(exc)},
+            description=f"plugin '{name}' raised during probe",
+        )
+
+
+def run_plugins(
+    target: Target,
+    plugin_names: list[str],
+    concurrency: int = 1,
+) -> list[Finding]:
     """Run each named plugin against ``target`` and collect findings.
 
     A plugin returning ``None`` means "not vulnerable / not applicable" and is
     simply skipped. A plugin raising an exception is isolated: its error is
-    surfaced as a low-confidence Finding so one broken plugin can't abort a run.
+    surfaced as an ``"error"``-confidence Finding so one broken plugin can't
+    abort a run.
+
+    ``concurrency`` caps how many plugins probe in parallel. The default of 1
+    keeps the original sequential behaviour. Higher values run the I/O-bound
+    probes through a :class:`ThreadPoolExecutor`, which dramatically cuts wall
+    time when several plugins are requested (each probe is a network round-trip
+    that mostly waits). Regardless of how many threads run, findings are always
+    returned in the **input plugin order** — concurrency changes the timing,
+    never the output. Inapplicable plugins are filtered before any thread is
+    spawned, so a skipped plugin never occupies a worker slot.
     """
-    findings: list[Finding] = []
+    if concurrency < 1:
+        raise ValueError(f"concurrency must be >= 1, got {concurrency}")
+
+    # Resolve and filter first, preserving the requested order. ``applicable``
+    # holds (name, module) pairs in input order; index alignment lets us return
+    # findings deterministically no matter which thread finishes first.
+    applicable: list[tuple[str, ModuleType]] = []
     for name in plugin_names:
         module = load_plugin(name)
         if not is_applicable(module, target):
             # The target's open ports / services can't match this plugin's
             # hints. Skip the probe rather than waste a network round-trip.
             continue
-        try:
-            result = module.probe(target)
-        except Exception as exc:  # one plugin must not kill the whole run
-            findings.append(
-                Finding(
-                    vuln_id=module.metadata.get("vuln_id", name),
-                    host=target.host,
-                    confidence="error",
-                    evidence={"error": repr(exc)},
-                    description=f"plugin '{name}' raised during probe",
+        applicable.append((name, module))
+
+    if not applicable:
+        return []
+
+    if concurrency == 1 or len(applicable) == 1:
+        results = [_probe_one(name, module, target) for name, module in applicable]
+    else:
+        max_workers = min(concurrency, len(applicable))
+        with ThreadPoolExecutor(max_workers=max_workers) as pool:
+            # ``map`` preserves input order in its output, so findings stay
+            # deterministic even though probes complete out of order.
+            results = list(
+                pool.map(
+                    lambda pair: _probe_one(pair[0], pair[1], target),
+                    applicable,
                 )
             )
-            continue
-        if result is not None:
-            findings.append(result)
-    return findings
+
+    return [finding for finding in results if finding is not None]

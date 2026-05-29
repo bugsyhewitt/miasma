@@ -83,6 +83,19 @@ stdout with `--output-file`. Use `-` to force stdout (the default):
 miasma --target 10.0.0.5 --plugins cve_2009_3548 --output-file findings.json
 ```
 
+When you request several plugins, run their probes in parallel with
+`--concurrency`. Each probe is an I/O-bound network round-trip that mostly
+waits, so concurrency cuts wall time roughly in proportion to how many plugins
+overlap. The default is `1` (sequential). Findings are always emitted in the
+**requested plugin order** regardless of how many threads run, so the JSON
+report is byte-for-byte deterministic — concurrency changes only the timing:
+
+```bash
+miasma --target 10.0.0.5 \
+  --plugins miasma_redis_001,miasma_elastic_001,cve_2024_23897,miasma_actuator_001 \
+  --concurrency 4
+```
+
 Output is JSON:
 
 ```json
@@ -110,6 +123,7 @@ Output is JSON:
 | `--target` | Host to scan and probe (IP or hostname). |
 | `--plugins` | Comma-separated plugin names (file stems under `miasma/plugins`). |
 | `--port-range` | nmap port spec for the recon phase (default `1-1000`). |
+| `--concurrency` | Run up to N plugin probes in parallel (default `1`, sequential). Findings stay in requested order regardless of N. |
 | `--format` | Output format (`json`, default). |
 | `--output-file` | Write the JSON report to this path instead of stdout (`-` = stdout). |
 | `--list-plugins` | List available plugins and exit. |

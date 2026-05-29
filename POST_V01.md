@@ -437,7 +437,19 @@ directly, enabling piping into downstream tooling (e.g., `unearth` → miasma
 
 ---
 
-### I.4 Concurrent plugin execution
+### I.4 Concurrent plugin execution — ✅ IMPLEMENTED
+
+**Status:** Implemented (Phase 2, Rotation 14). `run_plugins(..., concurrency=N)`
+runs up to N I/O-bound plugin probes in parallel through a
+`ThreadPoolExecutor`, surfaced via the `--concurrency N` CLI flag (default `1`,
+sequential — original behaviour preserved exactly). Plugins are resolved and
+filtered through `is_applicable` *before* any worker slot is used, so an
+inapplicable plugin never occupies a thread. Findings are collected via
+`pool.map`, which preserves input order — so the JSON report is byte-for-byte
+deterministic regardless of N (concurrency changes only the timing, never the
+output). Per-plugin error isolation is preserved: a raising plugin still
+becomes a single `"error"`-confidence Finding without aborting the run.
+`--concurrency < 1` is rejected at both the CLI and runner layers.
 
 Run plugins concurrently (via `asyncio` or `ThreadPoolExecutor`) to reduce
 total scan time when multiple plugins are specified. I/O-bound probes
@@ -464,7 +476,7 @@ total scan time when multiple plugins are specified. I/O-bound probes
 | 11 | Spring Cloud Gateway CVE-2025-41243 ✅ | Plugin | Medium |
 | 12 | Traccar CVE-2025-61666 ✅ | Plugin | Medium |
 | 13 | Service-type targeting | Infrastructure | Medium |
-| 14 | Concurrent plugin execution | Infrastructure | Medium |
+| 14 | Concurrent plugin execution ✅ | Infrastructure | Medium |
 | 15 | Commvault CVE-2025-34028 | Plugin | Medium |
 | 16 | Quest KACE CVE-2025-32975 | Plugin | Small |
 | 17 | Kubernetes API unauthenticated | Plugin | Small |

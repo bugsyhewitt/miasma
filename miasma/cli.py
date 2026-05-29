@@ -44,6 +44,18 @@ def build_parser() -> argparse.ArgumentParser:
         help="nmap port spec for the recon phase (default: 1-1000).",
     )
     parser.add_argument(
+        "--concurrency",
+        type=int,
+        default=1,
+        metavar="N",
+        help=(
+            "Run up to N plugin probes in parallel (default: 1, sequential). "
+            "Probes are I/O-bound network round-trips, so raising this cuts "
+            "wall time when several plugins are requested. Findings are always "
+            "returned in the requested plugin order regardless of N."
+        ),
+    )
+    parser.add_argument(
         "--format",
         choices=["json"],
         default="json",
@@ -83,9 +95,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     if not args.target:
         parser.error("--target is required (unless using --list-plugins)")
 
+    if args.concurrency < 1:
+        parser.error("--concurrency must be >= 1")
+
     target = recon(args.target, args.port_range)
     plugin_names = [p.strip() for p in args.plugins.split(",") if p.strip()]
-    findings = run_plugins(target, plugin_names)
+    findings = run_plugins(target, plugin_names, concurrency=args.concurrency)
 
     report = {
         "target": target.host,
