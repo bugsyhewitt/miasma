@@ -429,6 +429,47 @@ Confidence: **high** on version endpoint; **medium** on namespace listing
 
 ---
 
+### 3.5 Langflow CVE-2025-3248 — unauthenticated RCE — ✅ IMPLEMENTED
+
+**Status:** Implemented as plugin `cve_2025_3248` (Phase 2, Rotation 18).
+Benign, read-only, **version-fingerprint-only** probe: fingerprints Langflow via
+the unauthenticated version endpoint (`/api/v1/version`, with `/health` and `/`
+as fallbacks) using a `langflow` body/header marker, reads the advertised build,
+and flags any version strictly below the fixed `1.3.0` line. HIGH when Langflow
+fingerprints AND an affected (`< 1.3.0`) version is present; MEDIUM when Langflow
+fingerprints but no version string could be read (hardened/stripped deployment).
+A non-Langflow host (a bare `{"version": ...}` JSON without a `langflow` marker is
+not a fingerprint) and a Langflow host on a fixed release (`1.3.0`+) are never
+flagged. The vulnerable `/api/v1/validate/code` endpoint is **never** contacted
+and the probe never POSTs — triggering the endpoint is active RCE and out of
+scope; this is a fingerprint flag for human-driven confirmation. Default ports:
+7860, 80, 443, 8080, 8443.
+
+**ID:** CVE-2025-3248
+**CVSS:** 9.8 (Critical)
+**Affected:** Langflow before 1.3.0
+
+**Why it matters:**
+Langflow is a widely deployed low-code framework for building LLM/agent
+workflows. Before 1.3.0, `/api/v1/validate/code` compiles and executes
+attacker-supplied Python via `exec` with no authentication — a direct pre-auth
+RCE. CISA added it to the KEV catalog in May 2025 after in-the-wild exploitation
+(botnet/crypto-miner recruitment). Langflow hosts commonly store downstream
+LLM-provider and internal API keys, making them high-value targets and a
+recurring item on AI/ML bug-bounty scope.
+
+**Benign probe:**
+HTTP GET `/api/v1/version` → returns the build version without auth on Langflow
+hosts. Compare against the fixed 1.3.0 line and flag affected builds. Do NOT
+POST to `/api/v1/validate/code` — that is the active RCE trigger.
+
+Confidence: **high** on fingerprinted Langflow hosts below 1.3.0; **medium** on
+version-unreadable Langflow hosts
+
+**Ports:** 7860, 80, 443, 8080, 8443
+
+---
+
 ## Infrastructure improvements (non-plugin)
 
 These are framework-level improvements that increase miasma's utility and
@@ -520,6 +561,7 @@ total scan time when multiple plugins are specified. I/O-bound probes
 | 15 | Commvault CVE-2025-34028 ✅ | Plugin | Medium |
 | 16 | Quest KACE CVE-2025-32975 ✅ | Plugin | Small |
 | 17 | Kubernetes API unauthenticated ✅ | Plugin | Small |
+| 18 | Langflow CVE-2025-3248 RCE ✅ | Plugin | Small |
 
 ---
 
