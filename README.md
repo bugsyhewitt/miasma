@@ -243,6 +243,7 @@ its service name as `redis`.
 | `miasma_consul_001` | `MIASMA-CONSUL-001` | HashiCorp Consul HTTP API reachable without an ACL token — `/v1/agent/self` fingerprints the agent and leaks the version, `/v1/catalog/services` enumerates every registered service (the authoritative internal inventory, high), and `/v1/kv/?recurse=true` can disclose secrets stored in the recursive Key/Value store (high). Consul ships with its ACL system disabled by default. |
 | `miasma_etcd_001` | `MIASMA-ETCD-001` | etcd client API reachable without a credential — `GET /version` fingerprints etcd and leaks the server version, `POST /v3/maintenance/status` confirms the v3 API answers unauthenticated and leaks the cluster status / db size, and a value-free `POST /v3/kv/range` confirms the entire keyspace is readable and sizes it (high); key names are scanned for Kubernetes-secret / credential markers. etcd ships with authentication disabled by default and is the Kubernetes control-plane store. |
 | `miasma_zookeeper_001` | `MIASMA-ZOOKEEPER-001` | Apache ZooKeeper reachable without transport authentication — the `ruok`→`imok` four-letter-word (4lw) handshake fingerprints ZooKeeper, `srvr` confirms the admin surface answers unauthenticated and leaks the version / mode / runtime summary (high), and `envi` is scanned for credential-bearing JVM system-property names (high). ZooKeeper listens on 2181 with no connection-level auth by default and backs Kafka/HBase/SolrCloud/Hadoop. |
+| `miasma_memcached_001` | `MIASMA-MEMCACHED-001` | Memcached reachable on its TCP client port without authentication — `version` fingerprints Memcached via the `VERSION <semver>` banner, and `stats` confirms the ASCII text-protocol admin surface answers unauthenticated and leaks the inventory counters (`curr_items`, `total_items`, `bytes`); a live cache (`curr_items > 0`, high) means an unauthenticated peer can read every cached value (routinely application session data, JWTs, password-reset tokens). Memcached ships with no auth/TLS by default; 11211/udp is also the long-running UDP amplification reflector (CVE-2018-1000115). |
 
 ### MIASMA-ACTUATOR-001 — Spring Boot Actuator exposure
 
@@ -1138,6 +1139,54 @@ Default ports (port hints): `2181, 2182, 2183, 2281`.
 
 ```bash
 miasma --target 10.0.0.8 --port-range 1-20000 --plugins miasma_zookeeper_001
+```
+
+### MIASMA-MEMCACHED-001 — Memcached unrestricted access
+
+Memcached — the ubiquitous in-memory key/value cache that fronts session stores,
+query caches, rate-limit counters, and feature-flag tables for an enormous
+fraction of web applications — listens on TCP 11211 with **no authentication,
+no authorisation, and no transport encryption** by default. SASL is available
+but off by default and rarely enabled in production deployments; the ASCII text
+protocol is the default conversation, so any network client that reaches the
+port can read every cached key, exfiltrate every cached value (routinely
+application session data, JWTs, password-reset tokens, and rendered HTML
+containing user PII), and — though we never do — flush the cache or overwrite
+values to poison the application's view of state. Memcached has also been a
+long-running UDP amplification reflector (CVE-2018-1000115; the 1.7 Tbps GitHub
+attack), so any internet-exposed instance is a participation risk on top of the
+data-leak posture.
+
+The probe is benign and read-only. It speaks the documented ASCII text protocol
+over a raw TCP socket — exactly the `echo stats | nc host 11211` handshake a
+human runs by hand — and never issues any state-changing command (`set`, `add`,
+`replace`, `delete`, `incr`, `decr`, `flush_all`, and `cache_memlimit` are never
+sent; `get` is never sent against any user key, and `stats items` / `stats slabs`
+/ `stats cachedump` are never sent):
+
+1. `version` — a healthy Memcached replies with a single `VERSION <semver>` line.
+   This is the fingerprint; anything else means not Memcached (or a SASL-only
+   server has refused the unauthenticated command).
+2. `stats` — the server stats block. Only the documented inventory / fingerprint
+   counters are parsed: `version`, `pid`, `uptime`, `curr_items`, `total_items`,
+   `bytes`, `curr_connections`, `auth_cmds`, `auth_errors`. No `stats items` /
+   `stats slabs` / `stats cachedump` is ever sent — those would enumerate
+   individual cache keys.
+
+**Severity:**
+- `HIGH` — `version` fingerprints Memcached **and** `stats` answers
+  unauthenticated **and** the cache currently holds one or more items
+  (`curr_items > 0`); an unauthenticated peer can read every cached value.
+- `MEDIUM` — `version` fingerprints Memcached **and** `stats` answers
+  unauthenticated, but `curr_items == 0` (no live application data right now;
+  the admin text-protocol surface is still exposed).
+- `MEDIUM` — `version` fingerprints Memcached but `stats` is refused / blocked
+  (only the version banner is reachable on this port).
+
+Default ports (port hints): `11211, 11210, 11212`.
+
+```bash
+miasma --target 10.0.0.11 --port-range 1-20000 --plugins miasma_memcached_001
 ```
 
 ## Development

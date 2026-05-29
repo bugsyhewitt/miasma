@@ -763,3 +763,46 @@ mutated, and no admin endpoint (`/-/reload`, TSDB admin API) is touched.
 **STATUS: ✅ IMPLEMENTED (R26, 2026-05-29).** Plugin `miasma_prometheus_001.py`,
 16 tests in `tests/test_prometheus.py`. Ports: 9090, 80, 443 (HTTPS), 8080, 9091.
 Total tests: 350 → 366 (+16).
+
+## Rotation 30 fresh-gap addition
+
+### 30. Memcached Unrestricted Access — MIASMA-MEMCACHED-001
+
+**Rank: fresh gap (R30, 2026-05-29)** — The dispatched options were Apache
+Cassandra unauthenticated access or Memcached unrestricted access. Both were
+unshipped after a full audit of the plugin directory and POST_V01 status
+markers. Memcached was selected as the higher-value gap: (1) the ASCII text
+protocol is trivially fingerprintable with a single `version` exchange that
+mirrors how a human verifies the finding by hand (Cassandra's binary native
+protocol requires constructing an OP_STARTUP frame and parsing the response
+header — more probe code with no additional finding-quality benefit), (2)
+Memcached is enormously more common in internet-exposed estates than
+Cassandra and the same port (11211/udp) is the documented UDP amplification
+reflector behind CVE-2018-1000115, (3) the inventory counters returned by
+`stats` (`curr_items`, `bytes`) give a clean live-vs-empty severity gate
+analogous to the Redis/etcd/ZooKeeper plugins. Cassandra unauthenticated
+access remains a queued candidate for a future rotation.
+
+**What:** Memcached ships with no authentication, no authorisation, and no TLS
+by default; SASL exists but is off by default. Any client that reaches TCP
+11211 can read every cached key and value (routinely application session data,
+JWTs, password-reset tokens, rendered HTML with user PII) and — though the
+probe never does — flush or overwrite the cache.
+
+**Probe:** Read-only ASCII text protocol — `version\r\n` then `stats\r\n`. No
+`get`, no `set`, no `delete`, no `stats items` / `stats slabs` / `stats
+cachedump`. Evidence records only the version banner and the documented
+inventory counters (`curr_items`, `total_items`, `bytes`, `curr_connections`,
+`uptime`, `pid`, `auth_cmds`, `auth_errors`).
+
+**Severity:**
+- HIGH: `version` fingerprints Memcached AND `stats` answers unauthenticated
+  AND `curr_items > 0` (live cache with readable application data).
+- MEDIUM: `version` + `stats` answer but `curr_items == 0` (admin surface
+  exposed, no live data right now).
+- MEDIUM: `version` answers but `stats` is refused (only the banner is
+  reachable on this port).
+
+**STATUS: ✅ IMPLEMENTED (R30, 2026-05-29).** Plugin `miasma_memcached_001.py`,
+16 tests in `tests/test_memcached.py`. Ports: 11211, 11210, 11212.
+Total tests: 410 → 426 (+16).
