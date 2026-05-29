@@ -640,9 +640,39 @@ total scan time when multiple plugins are specified. I/O-bound probes
 | 17 | Kubernetes API unauthenticated ✅ | Plugin | Small |
 | 18 | Langflow CVE-2025-3248 RCE ✅ | Plugin | Small |
 | 19 | Ivanti Connect Secure CVE-2025-0282 RCE ✅ | Plugin | Small |
+| 20 | Ivanti EPMM CVE-2026-1340 unauthenticated RCE ✅ | Plugin | Small |
+| 21 | Docker daemon unauthenticated TCP API ✅ | Plugin | Small |
 
 ---
 
 *Research lap completed 2026-05-26. Sources: CISA KEV catalog, Wiz Research,
 Rapid7, Qualys, Sysdig, ProjectDiscovery Nuclei Templates, NVD, HeroDevs,
 SentinelOne Vulnerability Database, SecurityWeek.*
+
+---
+
+## Rotation 21 fresh-gap addition
+
+### 21. Docker Daemon Unauthenticated TCP API — MIASMA-DOCKER-001
+
+**Rank: fresh gap (R21, 2026-05-29)** — All POST_V01 plugin items §1.1–§3.7 were
+already shipped. Docker daemon unauthenticated TCP API was the highest-value
+unimplemented gap: port 2375 HTTP with no authentication gives any client full
+container control and a documented path to root on the host.
+
+**What:** `dockerd -H tcp://0.0.0.0:2375` with no TLS and no auth lets any
+network client call the Docker Engine HTTP API. `GET /version` fingerprints
+the daemon; `GET /containers/json` enumerates running containers. A privileged
+container with a host-path bind mount achieves root on the host filesystem.
+
+**Probe:** Read-only GETs only — `GET /version` then `GET /containers/json`.
+No container created, started, or stopped. Evidence records only the version
+string and container count.
+
+**Severity:**
+- HIGH: `/containers/json` returns 200 with a JSON array (container enumeration)
+- MEDIUM: `/version` fingerprints Docker but container list is refused
+
+**STATUS: ✅ IMPLEMENTED (R21, 2026-05-29).** Plugin `miasma_docker_001.py`,
+12 tests in `tests/test_docker.py`. Ports: 2375 (HTTP), 2376 (HTTPS).
+Total tests: 287 → 299 (+12).

@@ -234,6 +234,7 @@ its service name as `redis`.
 | `cve_2025_3248` | `CVE-2025-3248` | Langflow unauthenticated RCE via `/api/v1/validate/code` — version-fingerprint of builds below the fixed 1.3.0 line (CISA KEV, CVSS 9.8). |
 | `cve_2025_0282` | `CVE-2025-0282` | Ivanti Connect Secure pre-auth stack-overflow RCE — version-fingerprint of appliances below the fixed 22.7R2.5 line (CISA KEV, CVSS 9.0). |
 | `cve_2026_1340` | `CVE-2026-1340` | Ivanti EPMM (MobileIron Core) unauthenticated RCE — fingerprints EPMM and checks reachability of the vulnerable `/mifs/c/{app,aft}store/fob/` feature endpoints with payload-free GETs (CISA KEV, CVSS 9.8). |
+| `miasma_docker_001` | `MIASMA-DOCKER-001` | Docker daemon unauthenticated TCP API — plaintext HTTP port 2375 with no auth; `GET /version` fingerprints the daemon, `GET /containers/json` confirms container enumeration (critical misconfiguration, root-on-host path via bind mount). |
 
 ### MIASMA-ACTUATOR-001 — Spring Boot Actuator exposure
 
@@ -785,6 +786,29 @@ sent. Default ports (port hints): `443, 80, 8443`.
 
 ```bash
 miasma --target 10.0.0.5 --port-range 1-10000 --plugins cve_2026_1340
+```
+
+### MIASMA-DOCKER-001 — Docker daemon unauthenticated TCP API
+
+A Docker daemon with the plaintext TCP socket enabled (`dockerd -H tcp://0.0.0.0:2375`)
+exposes the full Docker Engine HTTP API with no authentication. Any network client can list
+running containers, pull/push images, and — by launching a container with a host-path bind
+mount — read and write arbitrary host filesystem paths with root-equivalent access.
+
+**Probe (read-only):**
+1. `GET /version` — fingerprints the Docker daemon by checking for `ApiVersion` in the response.
+2. `GET /containers/json` — confirms container enumeration is accessible (HIGH) or refused (MEDIUM).
+
+No container is created, started, or stopped. Evidence records only the version string and container count.
+
+**Severity:**
+- `HIGH` — `/containers/json` returns a JSON array (container enumeration accessible).
+- `MEDIUM` — `/version` fingerprints Docker but container enumeration is refused.
+
+**Default ports:** `2375` (HTTP), `2376` (HTTPS with TLS verification disabled).
+
+```bash
+miasma --target 10.0.0.5 --plugins miasma_docker_001
 ```
 
 ## Development
