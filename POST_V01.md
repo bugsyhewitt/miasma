@@ -470,6 +470,48 @@ version-unreadable Langflow hosts
 
 ---
 
+### 3.6 Ivanti Connect Secure CVE-2025-0282 — pre-auth RCE — ✅ IMPLEMENTED
+
+**Status:** Implemented as plugin `cve_2025_0282` (Phase 2, Rotation 19).
+Benign, read-only, **version-fingerprint-only** probe: fingerprints Ivanti
+Connect Secure via the unauthenticated GINA client version file
+(`/dana-na/nc/nc_gina_ver.txt`, with the `/dana-na/auth/url_default/welcome.cgi`
+login page, `/dana-na/`, and `/` as fallbacks) using `/dana-na/`-family /
+Pulse-Secure / `welcome.cgi` body+header markers, reads the advertised Ivanti
+`MAJOR.MINORRn.m` build, and flags any version strictly below the fixed
+`22.7R2.5` line. HIGH when Ivanti fingerprints AND an affected (`< 22.7R2.5`)
+version is present; MEDIUM when Ivanti fingerprints but no version string could be
+read (hardened/stripped appliance). A non-Ivanti host (a bare version-looking
+token without an Ivanti marker is not a fingerprint) and an Ivanti appliance on a
+fixed release (`22.7R2.5`+) are never flagged. The memory-corruption overflow is
+**never** triggered — doing so crashes/compromises the appliance and is out of
+scope; this is a fingerprint flag for human-driven confirmation. Default ports:
+443, 80, 8443.
+
+**ID:** CVE-2025-0282  
+**CVSS:** 9.0 (Critical)  
+**Affected:** Ivanti Connect Secure / Policy Secure / Neurons for ZTA before 22.7R2.5
+
+**Why it matters:**  
+CISA KEV (January 2025); active in-the-wild exploitation by a China-nexus actor
+deploying the SPAWN malware family (Mandiant/Google). Ivanti SSL VPN appliances
+sit at the network edge and are perennial enterprise targets and recurring
+bug-bounty / red-team scope. An unauthenticated stack overflow yields pre-auth
+RCE on the appliance.
+
+**Benign probe:**  
+HTTP GET `/dana-na/nc/nc_gina_ver.txt` (the unauthenticated GINA version file) to
+fingerprint Ivanti and read the build, with the welcome/login page and root page
+as fallbacks. Compare against the fixed 22.7R2.5 line and flag affected builds.
+Do NOT send an overflow payload — that is the active, destructive RCE trigger.
+
+Confidence: **high** on fingerprinted Ivanti hosts below 22.7R2.5; **medium** on
+version-unreadable Ivanti hosts
+
+**Ports:** 443, 80, 8443
+
+---
+
 ## Infrastructure improvements (non-plugin)
 
 These are framework-level improvements that increase miasma's utility and
@@ -562,6 +604,7 @@ total scan time when multiple plugins are specified. I/O-bound probes
 | 16 | Quest KACE CVE-2025-32975 ✅ | Plugin | Small |
 | 17 | Kubernetes API unauthenticated ✅ | Plugin | Small |
 | 18 | Langflow CVE-2025-3248 RCE ✅ | Plugin | Small |
+| 19 | Ivanti Connect Secure CVE-2025-0282 RCE ✅ | Plugin | Small |
 
 ---
 
