@@ -709,3 +709,57 @@ config changed; exactly one credential pair attempted (not a brute force).
 **STATUS: ✅ IMPLEMENTED (R24, 2026-05-29).** Plugin `miasma_grafana_001.py`,
 14 tests in `tests/test_grafana.py`. Ports: 3000, 80, 443 (HTTPS), 8080.
 Total tests: 323 → 337 (+14).
+
+## Rotation 25 fresh-gap addition
+
+### 25. Apache Solr Unauthenticated Admin API Access — MIASMA-SOLR-001
+
+**Rank: fresh gap (R25, 2026-05-29).** Apache Solr ships with no authentication
+enabled by default; the Admin API is reachable by any client that can reach the
+HTTP port, leaking the indexed dataset, schema, JVM/OS fingerprint, and every
+configured core, and gating the CVE-2019-17558 / CVE-2017-12629 RCE chains.
+
+**Probe:** Read-only. `GET /solr/admin/info/system?wt=json` fingerprints Solr and
+captures the version banner; `GET /solr/admin/cores?wt=json` with no credentials
+enumerates cores. No document read, no core created, no RCE handler invoked.
+
+**Severity:**
+- HIGH: `/solr/admin/cores` enumerates cores without authentication
+- MEDIUM: system-info answers but core-listing is auth-gated
+
+**STATUS: ✅ IMPLEMENTED (R25, 2026-05-29).** Plugin `miasma_solr_001.py`,
+13 tests in `tests/test_solr.py`. Ports: 8983, 8984, 80, 443 (HTTPS), 8080.
+
+## Rotation 26 fresh-gap addition
+
+### 26. Prometheus Unauthenticated HTTP API Access — MIASMA-PROMETHEUS-001
+
+**Rank: fresh gap (R26, 2026-05-29)** — The dispatched options were Elasticsearch
+or Prometheus unauthenticated access. Elasticsearch (§1.3,
+`miasma_elastic_001.py`) was already shipped, so the other option — Prometheus —
+was implemented. Prometheus ships with no authentication, authorization, or TLS
+on its HTTP API by default; the upstream project states explicitly that securing
+the endpoint is the operator's responsibility.
+
+**What:** The most valuable leak is the scrape-target inventory — Prometheus has
+already discovered every monitored service, so `/api/v1/targets` is a live,
+authoritative map of the internal estate (better than a port scan). The running
+config (`/api/v1/status/config`) can additionally disclose scrape-time
+credentials (basic-auth passwords, bearer tokens) embedded in scrape_configs.
+
+**Probe:** Read-only fingerprint + two minimal status reads.
+`GET /api/v1/status/buildinfo` fingerprints Prometheus (version/revision/
+goVersion keys); `GET /api/v1/targets` confirms the inventory is readable and
+counts active targets; `GET /api/v1/status/config` is scanned in-memory (never
+stored) for credential markers to escalate severity. No query is run, no rule is
+mutated, and no admin endpoint (`/-/reload`, TSDB admin API) is touched.
+
+**Severity:**
+- HIGH: config readable with credential markers, OR `/api/v1/targets` enumerates
+  one or more active scrape targets without authentication
+- MEDIUM: status API answers without authentication but no targets and no
+  credentials observed
+
+**STATUS: ✅ IMPLEMENTED (R26, 2026-05-29).** Plugin `miasma_prometheus_001.py`,
+16 tests in `tests/test_prometheus.py`. Ports: 9090, 80, 443 (HTTPS), 8080, 9091.
+Total tests: 350 → 366 (+16).

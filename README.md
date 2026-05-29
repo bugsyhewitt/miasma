@@ -239,6 +239,7 @@ its service name as `redis`.
 | `miasma_mongodb_001` | `MIASMA-MONGODB-001` | MongoDB reachable without authentication — wire-protocol `buildInfo` fingerprints the server, an unauthenticated `listDatabases` confirms privileged cluster-wide access (critical misconfiguration, full read/write/delete of every database). |
 | `miasma_grafana_001` | `MIASMA-GRAFANA-001` | Grafana reachable with the factory `admin:admin` credential or with anonymous access enabled — `/api/health` fingerprints the server, a single `admin:admin` login confirms default credentials (critical), and an unauthenticated `/api/org` confirms anonymous access (high). |
 | `miasma_solr_001` | `MIASMA-SOLR-001` | Apache Solr Admin API reachable without authentication — `/solr/admin/info/system` fingerprints Solr and leaks the JVM/OS/version banner, and an unauthenticated `/solr/admin/cores` enumerates every configured core (high); the exposure gates the CVE-2019-17558 / CVE-2017-12629 RCE chains. |
+| `miasma_prometheus_001` | `MIASMA-PROMETHEUS-001` | Prometheus HTTP API reachable without authentication — `/api/v1/status/buildinfo` fingerprints Prometheus and leaks the version, `/api/v1/targets` enumerates every scrape target (the authoritative internal service inventory, high), and `/api/v1/status/config` can disclose scrape-config credentials (high). Prometheus ships with no auth, authz, or TLS by default. |
 
 ### MIASMA-ACTUATOR-001 — Spring Boot Actuator exposure
 
@@ -953,6 +954,46 @@ over HTTPS; the others over plain HTTP.
 
 ```bash
 miasma --target 10.0.0.10 --port-range 1-20000 --plugins miasma_solr_001
+```
+
+### MIASMA-PROMETHEUS-001 — Prometheus unauthenticated HTTP API access
+
+Prometheus ships with **no authentication, no authorization, and no TLS** on its
+HTTP API — the upstream project states explicitly that securing the endpoint is
+the operator's responsibility. An instance reachable on its default port 9090
+therefore exposes the full read API to any client that can reach it. The most
+valuable leak is the scrape-target inventory: Prometheus already discovered every
+monitored service, so `/api/v1/targets` is a live, authoritative map of the
+internal estate. The probe runs the three minimal GET requests a human would run
+by hand, and is benign and read-only:
+
+1. `GET /api/v1/status/buildinfo` — fingerprints Prometheus; a genuine reply is
+   `{"status":"success","data":{...}}` carrying the `version`/`revision`/
+   `goVersion` keys unique to the Prometheus API. This identifies the server but
+   is **not** sufficient on its own.
+2. `GET /api/v1/targets` — confirms the scrape-target inventory is readable
+   without authentication and captures the active-target count.
+3. `GET /api/v1/status/config` — confirms the running config is readable; its
+   YAML is scanned in-memory (never stored) for credential markers
+   (`password`/`bearer_token`/`credentials`) to raise severity.
+
+No query is run, no rule is mutated, and no admin endpoint (`/-/reload`, the TSDB
+admin API) is touched. Evidence records the Prometheus version, the active-target
+count, and whether the config leaked credentials — but never the raw config YAML.
+
+**Severity:**
+- `HIGH` — the config endpoint is readable and contains credential markers, OR
+  `/api/v1/targets` enumerates one or more active scrape targets without
+  authentication (internal inventory leak).
+- `MEDIUM` — the status API answers without authentication but no targets and no
+  credentials were observed (still an unauthenticated API surface worth
+  reporting).
+
+Default ports (port hints): `9090, 80, 443, 8080, 9091`. Port `443` is contacted
+over HTTPS; the others over plain HTTP.
+
+```bash
+miasma --target 10.0.0.10 --port-range 1-20000 --plugins miasma_prometheus_001
 ```
 
 ## Development
