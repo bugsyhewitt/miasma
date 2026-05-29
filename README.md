@@ -237,6 +237,7 @@ its service name as `redis`.
 | `cve_2026_1340` | `CVE-2026-1340` | Ivanti EPMM (MobileIron Core) unauthenticated RCE — fingerprints EPMM and checks reachability of the vulnerable `/mifs/c/{app,aft}store/fob/` feature endpoints with payload-free GETs (CISA KEV, CVSS 9.8). |
 | `miasma_docker_001` | `MIASMA-DOCKER-001` | Docker daemon unauthenticated TCP API — plaintext HTTP port 2375 with no auth; `GET /version` fingerprints the daemon, `GET /containers/json` confirms container enumeration (critical misconfiguration, root-on-host path via bind mount). |
 | `miasma_mongodb_001` | `MIASMA-MONGODB-001` | MongoDB reachable without authentication — wire-protocol `buildInfo` fingerprints the server, an unauthenticated `listDatabases` confirms privileged cluster-wide access (critical misconfiguration, full read/write/delete of every database). |
+| `miasma_grafana_001` | `MIASMA-GRAFANA-001` | Grafana reachable with the factory `admin:admin` credential or with anonymous access enabled — `/api/health` fingerprints the server, a single `admin:admin` login confirms default credentials (critical), and an unauthenticated `/api/org` confirms anonymous access (high). |
 
 ### MIASMA-ACTUATOR-001 — Spring Boot Actuator exposure
 
@@ -882,6 +883,42 @@ Default ports (port hints): `27017, 27018, 27019`.
 
 ```bash
 miasma --target 10.0.0.8 --port-range 1-30000 --plugins miasma_mongodb_001
+```
+
+### MIASMA-GRAFANA-001 — Grafana unauthenticated / default-credential access
+
+Grafana is one of the most commonly internet-exposed dashboards, and two
+recurring misconfigurations turn that exposure into a P1/critical finding:
+the factory `admin:admin` credential is frequently never rotated, and
+`[auth.anonymous] enabled = true` lets any client read dashboards and enumerate
+the org. Default-credential access grants full administration — including
+data-source credential disclosure for every configured database / cloud
+connection. The probe fingerprints Grafana first, then runs the two minimal
+checks a human would run by hand, and is benign and read-only:
+
+1. `GET /api/health` — fingerprints Grafana; the JSON body carries the
+   `version`/`database` keys unique to Grafana. This always answers pre-auth, so
+   it identifies the server but is **not** sufficient on its own.
+2. `POST /login {"user":"admin","password":"admin"}` — the single documented
+   factory credential pair. A 200 (Grafana answers a failed login with 401)
+   confirms default credentials.
+3. `GET /api/org` — with no credentials. A 200 returning an org `id`/`name`
+   confirms anonymous access is enabled.
+
+No dashboard is read, no data source is touched, no configuration is changed.
+Only one credential pair is ever attempted — this is a misconfiguration check,
+not a brute force. Evidence records the Grafana version, the matched user (for
+the default-credential path), and the org name (for the anonymous path).
+
+**Severity:**
+- `CRITICAL` — default `admin:admin` login accepted.
+- `HIGH` — anonymous `/api/org` returns org metadata (anonymous access enabled).
+
+Default ports (port hints): `3000, 80, 443, 8080`. Port `443` is contacted over
+HTTPS; the others over plain HTTP.
+
+```bash
+miasma --target 10.0.0.9 --port-range 1-20000 --plugins miasma_grafana_001
 ```
 
 ## Development

@@ -642,6 +642,7 @@ total scan time when multiple plugins are specified. I/O-bound probes
 | 19 | Ivanti Connect Secure CVE-2025-0282 RCE ✅ | Plugin | Small |
 | 20 | Ivanti EPMM CVE-2026-1340 unauthenticated RCE ✅ | Plugin | Small |
 | 21 | Docker daemon unauthenticated TCP API ✅ | Plugin | Small |
+| 24 | Grafana unauthenticated / default-credential access ✅ | Plugin | Small |
 
 ---
 
@@ -676,3 +677,35 @@ string and container count.
 **STATUS: ✅ IMPLEMENTED (R21, 2026-05-29).** Plugin `miasma_docker_001.py`,
 12 tests in `tests/test_docker.py`. Ports: 2375 (HTTP), 2376 (HTTPS).
 Total tests: 287 → 299 (+12).
+
+---
+
+## Rotation 24 fresh-gap addition
+
+### 24. Grafana Unauthenticated / Default-Credential Access — MIASMA-GRAFANA-001
+
+**Rank: fresh gap (R24, 2026-05-29)** — The dispatched options were Grafana or
+Redis unauthenticated access. Redis (§1.2, `miasma_redis_001.py`) was already
+shipped, so the other option — Grafana — was implemented. Grafana is among the
+most internet-exposed dashboards, and two recurring misconfigurations make it a
+P1/critical finding: the factory `admin:admin` credential is rarely rotated, and
+`[auth.anonymous] enabled = true` exposes dashboards and org metadata to anyone.
+
+**What:** Default-credential access grants full Grafana administration,
+including data-source credential disclosure for every configured database / cloud
+connection. Anonymous access exposes internal dashboards, asset inventories, and
+dashboard-embedded queries without authentication.
+
+**Probe:** Read-only fingerprint + two minimal checks. `GET /api/health`
+fingerprints Grafana (version/database keys); `POST /login` with the single
+factory `admin:admin` pair confirms default creds (200); `GET /api/org` with no
+auth confirms anonymous access. No dashboard read, no data source touched, no
+config changed; exactly one credential pair attempted (not a brute force).
+
+**Severity:**
+- CRITICAL: default `admin:admin` login accepted
+- HIGH: anonymous `/api/org` returns org metadata
+
+**STATUS: ✅ IMPLEMENTED (R24, 2026-05-29).** Plugin `miasma_grafana_001.py`,
+14 tests in `tests/test_grafana.py`. Ports: 3000, 80, 443 (HTTPS), 8080.
+Total tests: 323 → 337 (+14).
