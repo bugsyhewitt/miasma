@@ -238,6 +238,7 @@ its service name as `redis`.
 | `miasma_docker_001` | `MIASMA-DOCKER-001` | Docker daemon unauthenticated TCP API — plaintext HTTP port 2375 with no auth; `GET /version` fingerprints the daemon, `GET /containers/json` confirms container enumeration (critical misconfiguration, root-on-host path via bind mount). |
 | `miasma_mongodb_001` | `MIASMA-MONGODB-001` | MongoDB reachable without authentication — wire-protocol `buildInfo` fingerprints the server, an unauthenticated `listDatabases` confirms privileged cluster-wide access (critical misconfiguration, full read/write/delete of every database). |
 | `miasma_grafana_001` | `MIASMA-GRAFANA-001` | Grafana reachable with the factory `admin:admin` credential or with anonymous access enabled — `/api/health` fingerprints the server, a single `admin:admin` login confirms default credentials (critical), and an unauthenticated `/api/org` confirms anonymous access (high). |
+| `miasma_solr_001` | `MIASMA-SOLR-001` | Apache Solr Admin API reachable without authentication — `/solr/admin/info/system` fingerprints Solr and leaks the JVM/OS/version banner, and an unauthenticated `/solr/admin/cores` enumerates every configured core (high); the exposure gates the CVE-2019-17558 / CVE-2017-12629 RCE chains. |
 
 ### MIASMA-ACTUATOR-001 — Spring Boot Actuator exposure
 
@@ -919,6 +920,39 @@ HTTPS; the others over plain HTTP.
 
 ```bash
 miasma --target 10.0.0.9 --port-range 1-20000 --plugins miasma_grafana_001
+```
+
+### MIASMA-SOLR-001 — Apache Solr unauthenticated Admin API access
+
+Apache Solr ships with **no authentication enabled by default**, so out of the
+box the Admin API is reachable by any client that can reach the HTTP port. An
+exposed Solr instance leaks the indexed dataset, the schema, the JVM/OS
+fingerprint, and every configured core — and it is the precondition for a
+documented RCE chain: CVE-2019-17558 (VelocityResponseWriter template injection)
+and CVE-2017-12629 (RemoteStreaming/XXE). The probe runs the two minimal
+requests a human would run by hand, and is benign and read-only:
+
+1. `GET /solr/admin/info/system?wt=json` — fingerprints Solr; the JSON body
+   carries the `lucene`/`jvm` keys unique to Solr plus the
+   `lucene.solr-spec-version` banner. This identifies the server but is **not**
+   sufficient on its own.
+2. `GET /solr/admin/cores?wt=json` — with no credentials. A 200 whose `status`
+   object enumerates cores confirms full Admin API access.
+
+No document is read, no core is created, no config is written, and the RCE
+handlers are never invoked — only the version is fingerprinted. Evidence records
+the Solr version and the enumerated core names.
+
+**Severity:**
+- `HIGH` — `/solr/admin/cores` enumerates cores without authentication.
+- `MEDIUM` — `/solr/admin/info/system` answers but core-listing is auth-gated
+  (partial Admin-API exposure still worth reporting).
+
+Default ports (port hints): `8983, 8984, 80, 443, 8080`. Port `443` is contacted
+over HTTPS; the others over plain HTTP.
+
+```bash
+miasma --target 10.0.0.10 --port-range 1-20000 --plugins miasma_solr_001
 ```
 
 ## Development
