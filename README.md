@@ -240,6 +240,7 @@ its service name as `redis`.
 | `miasma_grafana_001` | `MIASMA-GRAFANA-001` | Grafana reachable with the factory `admin:admin` credential or with anonymous access enabled — `/api/health` fingerprints the server, a single `admin:admin` login confirms default credentials (critical), and an unauthenticated `/api/org` confirms anonymous access (high). |
 | `miasma_solr_001` | `MIASMA-SOLR-001` | Apache Solr Admin API reachable without authentication — `/solr/admin/info/system` fingerprints Solr and leaks the JVM/OS/version banner, and an unauthenticated `/solr/admin/cores` enumerates every configured core (high); the exposure gates the CVE-2019-17558 / CVE-2017-12629 RCE chains. |
 | `miasma_prometheus_001` | `MIASMA-PROMETHEUS-001` | Prometheus HTTP API reachable without authentication — `/api/v1/status/buildinfo` fingerprints Prometheus and leaks the version, `/api/v1/targets` enumerates every scrape target (the authoritative internal service inventory, high), and `/api/v1/status/config` can disclose scrape-config credentials (high). Prometheus ships with no auth, authz, or TLS by default. |
+| `miasma_consul_001` | `MIASMA-CONSUL-001` | HashiCorp Consul HTTP API reachable without an ACL token — `/v1/agent/self` fingerprints the agent and leaks the version, `/v1/catalog/services` enumerates every registered service (the authoritative internal inventory, high), and `/v1/kv/?recurse=true` can disclose secrets stored in the recursive Key/Value store (high). Consul ships with its ACL system disabled by default. |
 
 ### MIASMA-ACTUATOR-001 — Spring Boot Actuator exposure
 
@@ -994,6 +995,50 @@ over HTTPS; the others over plain HTTP.
 
 ```bash
 miasma --target 10.0.0.10 --port-range 1-20000 --plugins miasma_prometheus_001
+```
+
+### MIASMA-CONSUL-001 — Consul unauthenticated HTTP API access
+
+HashiCorp Consul ships with its **ACL system disabled by default** — until an
+operator explicitly bootstraps ACLs (`acl { enabled = true, default_policy =
+"deny" }`), the full HTTP API on the default port 8500 answers every request with
+no token. An instance reachable on 8500 therefore exposes the entire service mesh
+control plane to any client that can reach it. The most valuable leaks are the
+service catalog (a live, authoritative map of the internal estate, discovered by
+Consul itself) and the recursive Key/Value store (which routinely holds
+application config, DSNs, and secrets). The probe runs the three minimal GET
+requests a human would run by hand, and is benign and read-only:
+
+1. `GET /v1/agent/self` — fingerprints Consul; a genuine reply is a JSON object
+   carrying the `Config` and `Member` keys unique to the Consul agent API. The
+   version is read from `Config.Version` (older agents) or `Member.Tags.build`
+   (newer agents) when present. This identifies the server but is **not**
+   sufficient on its own.
+2. `GET /v1/catalog/services` — confirms the service catalog is readable without
+   a token and captures the registered-service count.
+3. `GET /v1/kv/?recurse=true` — confirms the KV store is readable without a
+   token; the key names and base64-decoded values are scanned in-memory (never
+   stored) for credential markers (`password`/`token`/`secret`/…) to raise
+   severity.
+
+No key is written, no service is deregistered, and no admin/operator endpoint
+(`/v1/acl/bootstrap`, `/v1/operator/*`) is touched. Evidence records the Consul
+version, the registered-service count, and whether the KV store leaked
+credentials — but never the raw KV keys or values.
+
+**Severity:**
+- `HIGH` — the KV store is readable without a token and a key name or value
+  contains credential markers, OR `/v1/catalog/services` enumerates one or more
+  registered services without authentication (internal inventory leak).
+- `MEDIUM` — a read endpoint answers without a token but no services and no KV
+  credentials were observed (still an unauthenticated API surface worth
+  reporting).
+
+Default ports (port hints): `8500, 80, 443, 8501`. Ports `443` and `8501` are
+contacted over HTTPS; the others over plain HTTP.
+
+```bash
+miasma --target 10.0.0.10 --port-range 1-20000 --plugins miasma_consul_001
 ```
 
 ## Development
