@@ -231,6 +231,7 @@ its service name as `redis`.
 | `cve_2025_34028` | `CVE-2025-34028` | Commvault Command Center pre-auth SSRF→RCE — version-fingerprint of the affected 11.38 Innovation Release (CISA KEV). |
 | `cve_2025_32975` | `CVE-2025-32975` | Quest KACE SMA unauthenticated authentication bypass — version-fingerprint of builds below the fixed 14.1 line (CISA KEV, CVSS 10.0). |
 | `miasma_k8s_001` | `MIASMA-K8S-001` | Kubernetes API server reachable without authentication (anonymous-auth) — `/version` build leak plus anonymous `/api/v1/namespaces` enumeration. |
+| `cve_2025_3248` | `CVE-2025-3248` | Langflow unauthenticated RCE via `/api/v1/validate/code` — version-fingerprint of builds below the fixed 1.3.0 line (CISA KEV, CVSS 9.8). |
 
 ### MIASMA-ACTUATOR-001 — Spring Boot Actuator exposure
 
@@ -652,6 +653,41 @@ ports (port hints): `6443, 8443, 443`.
 
 ```bash
 miasma --target 10.0.0.5 --port-range 1-10000 --plugins miasma_k8s_001
+```
+
+### CVE-2025-3248 — Langflow unauthenticated remote code execution
+
+Detects a [Langflow](https://github.com/langflow-ai/langflow) deployment on a
+build affected by **CVE-2025-3248** (CVSS 9.8, CISA KEV May 2025). Before 1.3.0,
+Langflow's `/api/v1/validate/code` endpoint compiles and executes
+attacker-supplied Python via `exec` **without authentication** — a pre-auth RCE
+on a framework that commonly holds downstream LLM-provider and internal API keys.
+The probe is **version-fingerprint only** — it never POSTs and **never** contacts
+the vulnerable `/api/v1/validate/code` endpoint (triggering it is active RCE and
+out of scope). The flow is benign and read-only:
+
+1. `GET /api/v1/version` — Langflow's unauthenticated version endpoint, which is
+   both the Langflow fingerprint (a `langflow` marker in the body/headers) **and**
+   the affected-version source in one request. `/health` and `/` are tried as
+   fallbacks to fingerprint Langflow when the version endpoint is stripped.
+2. The advertised build is compared to the fixed `1.3.0` line; any build strictly
+   below `1.3.0` is the affected window.
+
+Severity:
+
+- **high** — the host fingerprints as Langflow **and** an affected `< 1.3.0`
+  version is present. The pre-auth RCE surface is exposed; flagged for an
+  operator-driven active check.
+- **medium** — Langflow fingerprints but no version string could be read
+  (hardened/stripped deployment) — worth a manual version check.
+
+A non-Langflow host (a bare `{"version": ...}` JSON without a `langflow` marker is
+never treated as a fingerprint) and a Langflow host on a fixed release (`1.3.0`+)
+are **never** flagged. Redirects are not followed and no `Authorization` header is
+ever sent. Default ports (port hints): `7860, 80, 443, 8080, 8443`.
+
+```bash
+miasma --target 10.0.0.5 --port-range 1-10000 --plugins cve_2025_3248
 ```
 
 ## Development
