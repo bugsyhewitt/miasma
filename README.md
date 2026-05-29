@@ -242,6 +242,7 @@ its service name as `redis`.
 | `miasma_prometheus_001` | `MIASMA-PROMETHEUS-001` | Prometheus HTTP API reachable without authentication — `/api/v1/status/buildinfo` fingerprints Prometheus and leaks the version, `/api/v1/targets` enumerates every scrape target (the authoritative internal service inventory, high), and `/api/v1/status/config` can disclose scrape-config credentials (high). Prometheus ships with no auth, authz, or TLS by default. |
 | `miasma_consul_001` | `MIASMA-CONSUL-001` | HashiCorp Consul HTTP API reachable without an ACL token — `/v1/agent/self` fingerprints the agent and leaks the version, `/v1/catalog/services` enumerates every registered service (the authoritative internal inventory, high), and `/v1/kv/?recurse=true` can disclose secrets stored in the recursive Key/Value store (high). Consul ships with its ACL system disabled by default. |
 | `miasma_etcd_001` | `MIASMA-ETCD-001` | etcd client API reachable without a credential — `GET /version` fingerprints etcd and leaks the server version, `POST /v3/maintenance/status` confirms the v3 API answers unauthenticated and leaks the cluster status / db size, and a value-free `POST /v3/kv/range` confirms the entire keyspace is readable and sizes it (high); key names are scanned for Kubernetes-secret / credential markers. etcd ships with authentication disabled by default and is the Kubernetes control-plane store. |
+| `miasma_zookeeper_001` | `MIASMA-ZOOKEEPER-001` | Apache ZooKeeper reachable without transport authentication — the `ruok`→`imok` four-letter-word (4lw) handshake fingerprints ZooKeeper, `srvr` confirms the admin surface answers unauthenticated and leaks the version / mode / runtime summary (high), and `envi` is scanned for credential-bearing JVM system-property names (high). ZooKeeper listens on 2181 with no connection-level auth by default and backs Kafka/HBase/SolrCloud/Hadoop. |
 
 ### MIASMA-ACTUATOR-001 — Spring Boot Actuator exposure
 
@@ -1092,6 +1093,51 @@ over HTTPS; the others over plain HTTP.
 
 ```bash
 miasma --target 10.0.0.10 --port-range 1-20000 --plugins miasma_etcd_001
+```
+
+### MIASMA-ZOOKEEPER-001 — Apache ZooKeeper unauthenticated access
+
+Apache ZooKeeper — the distributed coordination service that backs Kafka, HBase,
+SolrCloud, Hadoop/YARN, Druid, NiFi, and ClickHouse Keeper — listens on TCP 2181
+with **no transport authentication by default**. ZooKeeper's SASL/ACL system only
+guards individual znodes; the connection itself is anonymous and the
+"four-letter-word" (4lw) admin commands answer any client that can reach the
+port. An exposed 2181 leaks the exact server version (for matching ZooKeeper
+CVEs), the data directory, the JVM environment (system properties routinely
+carry credentials passed as `-D` flags), and the live client/session inventory —
+and, on the common default-ACL clusters, the znode tree itself (Kafka topic
+metadata, broker registrations, config, and stored secrets) is world-readable. An
+internet- or broadly-internal-reachable ZooKeeper is rated P1/HIGH on bug-bounty
+programs.
+
+The probe is benign and read-only. It speaks the 4lw protocol over a raw TCP
+socket — exactly the `echo ruok | nc host 2181` handshake a human runs by hand —
+and never opens a ZooKeeper client session, reads a znode, or issues any
+state-changing 4lw command (`kill`, `stmk`, `crst`, `srst` are never sent):
+
+1. `ruok` — a healthy ZooKeeper replies `imok` and nothing else. This is the
+   fingerprint; anything else means not ZooKeeper (or the 4lw whitelist blocks
+   it).
+2. `srvr` — the server summary. Only the `Version:` and `Mode:` lines are parsed,
+   for evidence and CVE-scoping; confirms the admin surface answers
+   unauthenticated.
+3. `envi` — the environment dump. Scanned **in memory only** for the presence of
+   credential-bearing system-property NAMES (`*.password`, `*.secret`, `*.token`,
+   `javax.net.ssl.keyStorePassword`, ...). Only a boolean "a credential-looking
+   property name was present" is recorded — the property **values are never
+   stored** in the finding.
+
+**Severity:**
+- `HIGH` — `ruok`→`imok` **and** `srvr` answers unauthenticated (the full admin
+  surface — version, data dir, latency, client count — is exposed), OR `envi`
+  reveals a credential-bearing system-property name.
+- `MEDIUM` — `ruok`→`imok` but `srvr` is whitelisted/blocked (only the liveness
+  word answers; still a confirmed unauthenticated 4lw surface worth reporting).
+
+Default ports (port hints): `2181, 2182, 2183, 2281`.
+
+```bash
+miasma --target 10.0.0.8 --port-range 1-20000 --plugins miasma_zookeeper_001
 ```
 
 ## Development
