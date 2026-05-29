@@ -229,6 +229,7 @@ its service name as `redis`.
 | `cve_2025_41243` | `CVE-2025-41243` | Spring Cloud Gateway exposed actuator (`/actuator/gateway/routes`) — mutable route table enables SpEL/env injection. |
 | `cve_2025_61666` | `CVE-2025-61666` | Traccar (Windows) unauthenticated LFI via the override servlet — reads `conf/traccar.xml` (DB credentials). |
 | `cve_2025_34028` | `CVE-2025-34028` | Commvault Command Center pre-auth SSRF→RCE — version-fingerprint of the affected 11.38 Innovation Release (CISA KEV). |
+| `cve_2025_32975` | `CVE-2025-32975` | Quest KACE SMA unauthenticated authentication bypass — version-fingerprint of builds below the fixed 14.1 line (CISA KEV, CVSS 10.0). |
 
 ### MIASMA-ACTUATOR-001 — Spring Boot Actuator exposure
 
@@ -570,6 +571,48 @@ header, and the version string read from the public login page. Default ports
 
 ```bash
 miasma --target 10.0.0.5 --port-range 1-10000 --plugins cve_2025_34028
+```
+
+### CVE-2025-32975 — Quest KACE SMA authentication bypass
+
+Fingerprints Quest KACE SMA (Systems Management Appliance) — an enterprise IT
+endpoint-management appliance that pushes software and patches to managed hosts —
+and flags builds below the fixed **14.1** line (the March 2025 patch). Those
+versions carry an authentication bypass (CVSS 10.0) that hands an attacker a full
+administrator session without credentials, making a hijacked console a fleet-wide
+foothold. The CVE is on CISA's KEV catalog with confirmed in-the-wild
+exploitation.
+
+This probe is **version-fingerprint only** and never attempts the bypass —
+performing it is an active exploitation step and is deliberately out of scope. The
+flow is benign and read-only:
+
+1. `GET /userui/login.php` (then `/userui/`, `/adminui/login.php`, `/`) —
+   fingerprint KACE via the login-page body, the `X-KACE-*` headers, and the
+   `kboxid` login cookie. The first path that fingerprints wins for that port.
+2. Read the advertised build — KACE exposes a dotted `MAJOR.MINOR.PATCH` string
+   in an `X-KACE-Version` header or on the login page. Anything below `14.1` is
+   the affected window; `14.1` and above is fixed.
+
+A non-KACE host is **never** flagged, even if it coincidentally mentions a
+`14.0`-ish string. A KACE host on a fixed release (`14.1`+) is a clean negative,
+not a candidate. Redirects are not followed.
+
+Severity:
+
+- **high** — KACE SMA fingerprinted **and** an affected version (below `14.1`) is
+  present. The unauthenticated admin-takeover surface is exposed; flag for an
+  operator-driven active check (which miasma does not run).
+- **medium** — KACE SMA fingerprinted but **no** version string could be read
+  (hardened login page or stripped banner) — worth a manual version check.
+
+The authentication bypass is **never** attempted and no credentials are
+submitted; evidence records only the fingerprint path, `Server` header, and the
+version string read from the public login page. Default ports (port hints):
+`443, 80`.
+
+```bash
+miasma --target 10.0.0.5 --port-range 1-10000 --plugins cve_2025_32975
 ```
 
 ## Development

@@ -357,7 +357,20 @@ Confidence: **high**
 
 ---
 
-### 3.3 CVE-2025-32975 — Quest KACE SMA authentication bypass
+### 3.3 CVE-2025-32975 — Quest KACE SMA authentication bypass — ✅ IMPLEMENTED
+
+**Status:** Implemented as plugin `cve_2025_32975` (Phase 2, Rotation 16).
+Benign, read-only, **version-fingerprint-only** probe: fingerprints Quest KACE
+SMA via the login console (`/userui/login.php`, `/userui/`, `/adminui/login.php`,
+`/`) using body / `X-KACE-*` header / `kboxid`-cookie markers, then reads the
+advertised dotted `MAJOR.MINOR.PATCH` build (from an `X-KACE-Version` header or
+the login HTML) and flags any build below the fixed `14.1` line (the March 2025
+patch). HIGH when KACE fingerprints AND an affected (`<14.1`) version is present;
+MEDIUM when KACE fingerprints but no version string could be read (hardened /
+stripped login page). A non-KACE host and a KACE host on a fixed release (`14.1`+)
+are never flagged. The authentication bypass is **never** attempted — performing
+it is active exploitation and out of scope; this is a fingerprint flag for
+human-driven confirmation. Default ports: 443, 80.
 
 **ID:** CVE-2025-32975  
 **CVSS:** 10.0  
@@ -491,7 +504,7 @@ total scan time when multiple plugins are specified. I/O-bound probes
 | 13 | Service-type targeting | Infrastructure | Medium |
 | 14 | Concurrent plugin execution ✅ | Infrastructure | Medium |
 | 15 | Commvault CVE-2025-34028 ✅ | Plugin | Medium |
-| 16 | Quest KACE CVE-2025-32975 | Plugin | Small |
+| 16 | Quest KACE CVE-2025-32975 ✅ | Plugin | Small |
 | 17 | Kubernetes API unauthenticated | Plugin | Small |
 
 ---
