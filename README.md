@@ -235,6 +235,7 @@ its service name as `redis`.
 | `cve_2025_0282` | `CVE-2025-0282` | Ivanti Connect Secure pre-auth stack-overflow RCE — version-fingerprint of appliances below the fixed 22.7R2.5 line (CISA KEV, CVSS 9.0). |
 | `cve_2026_1340` | `CVE-2026-1340` | Ivanti EPMM (MobileIron Core) unauthenticated RCE — fingerprints EPMM and checks reachability of the vulnerable `/mifs/c/{app,aft}store/fob/` feature endpoints with payload-free GETs (CISA KEV, CVSS 9.8). |
 | `miasma_docker_001` | `MIASMA-DOCKER-001` | Docker daemon unauthenticated TCP API — plaintext HTTP port 2375 with no auth; `GET /version` fingerprints the daemon, `GET /containers/json` confirms container enumeration (critical misconfiguration, root-on-host path via bind mount). |
+| `miasma_mongodb_001` | `MIASMA-MONGODB-001` | MongoDB reachable without authentication — wire-protocol `buildInfo` fingerprints the server, an unauthenticated `listDatabases` confirms privileged cluster-wide access (critical misconfiguration, full read/write/delete of every database). |
 
 ### MIASMA-ACTUATOR-001 — Spring Boot Actuator exposure
 
@@ -809,6 +810,39 @@ No container is created, started, or stopped. Evidence records only the version 
 
 ```bash
 miasma --target 10.0.0.5 --plugins miasma_docker_001
+```
+
+### MIASMA-MONGODB-001 — MongoDB unauthenticated access
+
+A MongoDB instance reachable without authentication lets any network client read,
+write, and delete every document in every database, enumerate databases and
+collections cluster-wide, dump credentials stored in application collections, and
+ransom or destroy data. The pre-3.6 default bound `mongod` to all interfaces with no
+auth, and recurring internet exposure scans (the "Mongo Lock" ransom sweeps and
+since) keep this a live P1/critical misconfiguration. The probe speaks the MongoDB
+wire protocol over a raw TCP socket using the legacy `OP_QUERY` opcode against the
+`admin.$cmd` virtual collection, and is benign and read-only:
+
+1. Send `OP_QUERY {buildInfo: 1}` — fingerprints the server and reads the version.
+   `buildInfo` answers pre-auth on every build (including hardened servers), so it
+   identifies MongoDB but is **not** sufficient on its own.
+2. Send `OP_QUERY {listDatabases: 1}` — the privileged enumeration command.
+   - `ok: 1.0` with a `databases` array → unauthenticated access reaches privileged
+     cluster-wide metadata; finding emitted (HIGH).
+   - an auth error (`ok: 0.0` / code 13 "Unauthorized" / "requires authentication")
+     → the server enforces auth on privileged commands; **no finding**.
+
+No document is read, written, or deleted; no collection is listed. Evidence records
+only the version string and the database **count** — never database names,
+collection names, or document contents.
+
+**Severity:**
+- `HIGH` — `listDatabases` succeeds without authentication.
+
+Default ports (port hints): `27017, 27018, 27019`.
+
+```bash
+miasma --target 10.0.0.8 --port-range 1-30000 --plugins miasma_mongodb_001
 ```
 
 ## Development
