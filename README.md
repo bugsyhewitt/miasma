@@ -233,6 +233,7 @@ its service name as `redis`.
 | `miasma_k8s_001` | `MIASMA-K8S-001` | Kubernetes API server reachable without authentication (anonymous-auth) — `/version` build leak plus anonymous `/api/v1/namespaces` enumeration. |
 | `cve_2025_3248` | `CVE-2025-3248` | Langflow unauthenticated RCE via `/api/v1/validate/code` — version-fingerprint of builds below the fixed 1.3.0 line (CISA KEV, CVSS 9.8). |
 | `cve_2025_0282` | `CVE-2025-0282` | Ivanti Connect Secure pre-auth stack-overflow RCE — version-fingerprint of appliances below the fixed 22.7R2.5 line (CISA KEV, CVSS 9.0). |
+| `cve_2026_1340` | `CVE-2026-1340` | Ivanti EPMM (MobileIron Core) unauthenticated RCE — fingerprints EPMM and checks reachability of the vulnerable `/mifs/c/{app,aft}store/fob/` feature endpoints with payload-free GETs (CISA KEV, CVSS 9.8). |
 
 ### MIASMA-ACTUATOR-001 — Spring Boot Actuator exposure
 
@@ -727,6 +728,63 @@ treated as a fingerprint) and an Ivanti appliance on a fixed release
 
 ```bash
 miasma --target 10.0.0.5 --port-range 1-10000 --plugins cve_2025_0282
+```
+
+### CVE-2026-1340 — Ivanti EPMM unauthenticated remote code execution
+
+Detects an [Ivanti Endpoint Manager Mobile](https://www.ivanti.com/) (EPMM,
+formerly MobileIron Core) deployment exposed to **CVE-2026-1340** (CVSS 9.8,
+with sibling **CVE-2026-1281**, on CISA's KEV catalog). EPMM's "In-House
+Application Distribution" (`/mifs/c/appstore/fob/`) and "Android File Transfer
+Configuration" (`/mifs/c/aftstore/fob/`) feature endpoints accept an
+unauthenticated HTTP request that smuggles a Bash command into the request and
+executes it as an OS command on the appliance — a pre-auth RCE. Ivanti shipped
+emergency patches on 2026-01-29; both bugs were exploited in the wild as
+zero-days. The permanent fix lands in EPMM 12.8.0.0; the 12.5.x / 12.6.x /
+12.7.x (and earlier) branches are affected unless the emergency RPM is applied.
+EPMM is the enterprise MDM control plane (it manages enrolled mobile fleets), so
+a compromised appliance is a fleet-wide foothold — and there were >2,000
+internet-exposed instances at disclosure.
+
+This probe is **benign and never triggers the RCE**. The vulnerability fires
+only when a Bash *command* is smuggled into the request; this probe sends **no
+command, no payload, no injection** — only plain unauthenticated GETs of public
+paths. Unlike the version-fingerprint-only plugins, EPMM does not serve its build
+version to unauthenticated HTTP on a sane appliance, so the primary signal is the
+**reachability of the vulnerable feature endpoints**:
+
+1. `GET /mifs/admin` (then `/mifs/`, `/mifs/c/windows/admin`, `/`) — fingerprint
+   EPMM via the "Ivanti User Portal: Sign In" / MobileIron login markup, the
+   `Server` header, and the EPMM session cookies. A non-EPMM host is **never**
+   flagged.
+2. `GET /mifs/c/appstore/fob/` and `GET /mifs/c/aftstore/fob/` — the two
+   vulnerable feature endpoints, requested with **no command payload**. Ivanti's
+   own detection guidance treats a `404` as "the path is not serving"; a routed
+   (non-`404`) response on a fingerprinted EPMM host confirms the vulnerable
+   feature surface is present and exposed. No command is ever sent, so the RCE is
+   never triggered.
+3. The EPMM build string is read opportunistically if it leaks on the public
+   surface; an affected `< 12.8.0.0` build reinforces / upgrades the finding.
+
+Severity:
+
+- **high** — the host fingerprints as EPMM **and** (a vulnerable feature endpoint
+  is routed/reachable **or** a readable build is in the affected `< 12.8.0.0`
+  window). The unauthenticated RCE surface is exposed; flag for an
+  operator-driven active check (which miasma skips).
+- **medium** — EPMM fingerprints but neither a vulnerable endpoint is confirmed
+  reachable nor a build string could be read (hardened/stripped, or patched via
+  the emergency RPM which leaves the advertised version unchanged) — worth a
+  manual check, since it might still be the affected line.
+
+A non-EPMM host is **never** flagged, even if a `/mifs/c/...fob/` path
+coincidentally answers `200`, because the EPMM fingerprint gates the whole probe.
+An EPMM host on a patched (`>= 12.8.0.0`) build with no reachable endpoint is a
+clean negative. Redirects are not followed and no `Authorization` header is ever
+sent. Default ports (port hints): `443, 80, 8443`.
+
+```bash
+miasma --target 10.0.0.5 --port-range 1-10000 --plugins cve_2026_1340
 ```
 
 ## Development

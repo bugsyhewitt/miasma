@@ -512,6 +512,41 @@ version-unreadable Ivanti hosts
 
 ---
 
+### 3.7 Ivanti EPMM CVE-2026-1340 / CVE-2026-1281 — unauthenticated RCE — ✅ IMPLEMENTED
+
+**Status:** Implemented as plugin `cve_2026_1340` (Phase 2, Rotation 20). Added
+via a fresh gap analysis after the entire Tier 1/2/3 roadmap above was found
+already shipped — sourced from the 2026 CISA KEV catalog. Benign, read-only,
+**RCE-never-triggered** probe: fingerprints Ivanti EPMM (MobileIron Core) via the
+`/mifs/admin` "Ivanti User Portal: Sign In" login surface, then checks whether the
+two vulnerable feature endpoints `/mifs/c/appstore/fob/` and
+`/mifs/c/aftstore/fob/` are *routed* (non-`404`) using payload-free GETs — no Bash
+command is ever smuggled, so the RCE is never triggered. HIGH when EPMM
+fingerprints AND a vulnerable endpoint is reachable OR a readable build is in the
+affected `< 12.8.0.0` window; MEDIUM when EPMM fingerprints with neither signal
+(hardened/stripped, or patched via the emergency RPM that leaves the version
+unchanged). A non-EPMM host and a patched (`>= 12.8.0.0`) host with no reachable
+endpoint are never flagged. Distinct from the Ivanti Connect Secure plugin
+(`cve_2025_0282`): EPMM is the MobileIron MDM control plane under `/mifs/`, not
+the `/dana-na/` SSL-VPN portal. Default ports: 443, 80, 8443.
+
+**ID:** CVE-2026-1340 (sibling CVE-2026-1281)
+**CVSS:** 9.8 (Critical)
+**Affected:** Ivanti EPMM before 12.8.0.0 (12.5.x / 12.6.x / 12.7.x branches)
+
+**Why it matters:**
+Both were exploited in the wild as zero-days (patched 2026-01-29); CVE-2026-1281
+is on CISA's KEV catalog and a public PoC is available. EPMM is the enterprise
+MDM control plane, so a compromised appliance is a fleet-wide foothold; >2,000
+instances were internet-exposed at disclosure.
+
+Confidence: **high** on EPMM hosts with a reachable feature endpoint or an
+affected readable build; **medium** on version/endpoint-unreadable EPMM hosts
+
+**Ports:** 443, 80, 8443
+
+---
+
 ## Infrastructure improvements (non-plugin)
 
 These are framework-level improvements that increase miasma's utility and
