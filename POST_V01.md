@@ -394,7 +394,21 @@ Confidence: **medium** (version fingerprint only)
 
 ---
 
-### 3.4 Kubernetes API server — unauthenticated access
+### 3.4 Kubernetes API server — unauthenticated access — ✅ IMPLEMENTED
+
+**Status:** Implemented as plugin `miasma_k8s_001` (Phase 2, Rotation 17).
+Benign, read-only, **enumeration-only** probe: `GET /version` fingerprints the
+Kubernetes API server (JSON object with `gitVersion`/`major`/`minor`) and
+confirms anonymous read in one request; only after that fingerprint is
+`GET /api/v1/namespaces` consulted. HIGH when `/version` fingerprints Kubernetes
+AND `/api/v1/namespaces` returns a `NamespaceList` (anonymous access reaches live
+resources) — evidence records only the namespace **count**, never the names or
+any resource contents. MEDIUM when `/version` answers anonymously (build-version
+leak) but namespace enumeration is refused (`401`/`403`). A host that refuses
+`/version`, a non-Kubernetes JSON/HTML `200`, or a bare namespace `200` without
+the `/version` fingerprint is never flagged. No credentials, bearer tokens, or
+service-account JWTs are ever sent; no Secret contents are read and no resource
+is mutated. Default ports: 6443, 8443, 443.
 
 **ID:** MIASMA-K8S-001  
 **Vuln class:** Misconfiguration — anonymous auth enabled
@@ -505,7 +519,7 @@ total scan time when multiple plugins are specified. I/O-bound probes
 | 14 | Concurrent plugin execution ✅ | Infrastructure | Medium |
 | 15 | Commvault CVE-2025-34028 ✅ | Plugin | Medium |
 | 16 | Quest KACE CVE-2025-32975 ✅ | Plugin | Small |
-| 17 | Kubernetes API unauthenticated | Plugin | Small |
+| 17 | Kubernetes API unauthenticated ✅ | Plugin | Small |
 
 ---
 

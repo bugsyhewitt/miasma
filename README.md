@@ -230,6 +230,7 @@ its service name as `redis`.
 | `cve_2025_61666` | `CVE-2025-61666` | Traccar (Windows) unauthenticated LFI via the override servlet — reads `conf/traccar.xml` (DB credentials). |
 | `cve_2025_34028` | `CVE-2025-34028` | Commvault Command Center pre-auth SSRF→RCE — version-fingerprint of the affected 11.38 Innovation Release (CISA KEV). |
 | `cve_2025_32975` | `CVE-2025-32975` | Quest KACE SMA unauthenticated authentication bypass — version-fingerprint of builds below the fixed 14.1 line (CISA KEV, CVSS 10.0). |
+| `miasma_k8s_001` | `MIASMA-K8S-001` | Kubernetes API server reachable without authentication (anonymous-auth) — `/version` build leak plus anonymous `/api/v1/namespaces` enumeration. |
 
 ### MIASMA-ACTUATOR-001 — Spring Boot Actuator exposure
 
@@ -613,6 +614,44 @@ version string read from the public login page. Default ports (port hints):
 
 ```bash
 miasma --target 10.0.0.5 --port-range 1-10000 --plugins cve_2025_32975
+```
+
+### MIASMA-K8S-001 — Kubernetes API server unauthenticated access
+
+Detects a Kubernetes API server with **anonymous authentication** enabled
+(`--anonymous-auth=true` — the default on older clusters, still common on
+self-managed installs). The API server is the control-plane front door, so
+anonymous read access is a direct path toward cluster compromise and a recurring
+P1/P2 cloud-native bug-bounty finding. The probe is **enumeration only** — it
+never sends credentials or tokens, never reads Secret contents, and never
+mutates a resource. The flow is benign and read-only:
+
+1. `GET /version` — the API server's build endpoint. On an anonymous-enabled
+   cluster this returns a JSON object carrying `gitVersion`/`major`/`minor`,
+   which is both the canonical Kubernetes fingerprint **and** confirms anonymous
+   read in one request. A non-JSON or non-Kubernetes `200` is **never** treated
+   as a fingerprint.
+2. `GET /api/v1/namespaces` — consulted only after `/version` fingerprints
+   Kubernetes. A `200` carrying a `NamespaceList` means anonymous access reaches
+   live cluster resources; a `401`/`403` is the secure refusal.
+
+Severity:
+
+- **high** — the host fingerprints as a Kubernetes API server **and**
+  `/api/v1/namespaces` returns a `NamespaceList`. Anonymous access reaches live
+  resources. Evidence records only the namespace **count** — never their names,
+  secrets, or any resource contents.
+- **medium** — `/version` answers anonymously (a build-version information leak)
+  but namespace enumeration is refused (`401`/`403`) — worth a manual deeper
+  check.
+
+A host that refuses `/version` anonymously, a non-Kubernetes JSON/HTML `200`, or
+a bare namespace `200` without the `/version` fingerprint is **never** flagged.
+Redirects are not followed and no `Authorization` header is ever sent. Default
+ports (port hints): `6443, 8443, 443`.
+
+```bash
+miasma --target 10.0.0.5 --port-range 1-10000 --plugins miasma_k8s_001
 ```
 
 ## Development
