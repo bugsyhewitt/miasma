@@ -246,6 +246,7 @@ its service name as `redis`.
 | `miasma_memcached_001` | `MIASMA-MEMCACHED-001` | Memcached reachable on its TCP client port without authentication — `version` fingerprints Memcached via the `VERSION <semver>` banner, and `stats` confirms the ASCII text-protocol admin surface answers unauthenticated and leaks the inventory counters (`curr_items`, `total_items`, `bytes`); a live cache (`curr_items > 0`, high) means an unauthenticated peer can read every cached value (routinely application session data, JWTs, password-reset tokens). Memcached ships with no auth/TLS by default; 11211/udp is also the long-running UDP amplification reflector (CVE-2018-1000115). |
 | `miasma_rabbitmq_001` | `MIASMA-RABBITMQ-001` | RabbitMQ management API reachable with the factory `guest:guest` credential or with anonymous read enabled — `/api/overview` fingerprints the broker via the `rabbitmq_version` / `management_version` JSON keys, an anonymous 200 confirms anonymous-read access (high), and a single `guest:guest` Basic-auth GET confirms default-credential exposure (critical). Either path lets an unauthenticated peer read the broker topology (queues, exchanges, connected clients) and grants full broker control (queue declare/delete, publish/consume, user management). |
 | `miasma_cassandra_001` | `MIASMA-CASSANDRA-001` | Apache Cassandra reachable on its binary native-protocol port without authentication — an `OPTIONS` frame fingerprints Cassandra via the `SUPPORTED` reply (and leaks the `CQL_VERSION` / `COMPRESSION` / `PROTOCOL_VERSIONS` capability set), then a single `STARTUP` frame distinguishes `READY` (no auth, CQL session opens for every keyspace, high) from `AUTHENTICATE` (authenticator class is leaked but no credential is ever sent, medium). Cassandra ships with `authenticator: AllowAllAuthenticator` and `authorizer: AllowAllAuthorizer` by default; the probe sends no `QUERY` / `PREPARE` / `EXECUTE` / `BATCH` / `AUTH_RESPONSE`. |
+| `miasma_kibana_001` | `MIASMA-KIBANA-001` | Kibana reachable without authentication on its HTTP API — `/api/status` fingerprints Kibana via the `version.number` semver and the Kibana-specific `status.overall` block (or a `name` field carrying the `kibana` marker), and an anonymous 200 confirms anonymous-read access (high). An unauthenticated Kibana grants browseable read of every index in the backing Elasticsearch cluster (via Discover), every saved search / visualisation / dashboard, and the Dev Tools console — which proxies arbitrary requests to the Elasticsearch cluster on the Kibana service account. The OpenSearch Dashboards fork is explicitly NOT flagged. |
 
 ### MIASMA-ACTUATOR-001 — Spring Boot Actuator exposure
 
@@ -1295,6 +1296,57 @@ and `9043` a conventional secondary-instance port.
 
 ```bash
 miasma --target 10.0.0.42 --port-range 1-20000 --plugins miasma_cassandra_001
+### MIASMA-KIBANA-001 — Kibana unauthenticated HTTP API exposure
+
+Kibana is the official Elasticsearch UI and the dominant operator console for
+the Elastic Stack. An unauthenticated Kibana exposes every index in the
+backing Elasticsearch cluster (browseable and exportable via Discover), every
+saved search / visualisation / dashboard (which routinely hard-code business-
+sensitive index patterns and field names), and the Dev Tools console
+(`/app/dev_tools#/console`) which proxies arbitrary requests — read AND write
+— to the Elasticsearch cluster on behalf of the Kibana service account.
+
+The recurring misconfiguration is operators fronting Kibana with their own
+SSO/auth at a reverse proxy (or configuring Kibana with
+`xpack.security.authc.providers.anonymous`) and then mis-scoping or omitting
+the proxy auth, leaving `/api/status` and the SPA reachable without
+credentials.
+
+The probe is benign and read-only. It fingerprints Kibana via the documented
+`/api/status` endpoint, which has carried a parseable `version.number` semver
+plus the Kibana-specific `status.overall` block (or, on minimal deployments,
+a `name` field whose value contains `kibana` case-insensitively) across every
+supported 7.x and 8.x release:
+
+1. `GET /api/status` — with no credentials.
+   - 200 with a JSON body carrying a parseable `version.number` AND a Kibana
+     fingerprint (either the `status.overall` block or a `name` field
+     containing `kibana`) => Kibana fingerprinted AND anonymous read confirmed
+     (HIGH).
+   - 401 / 403 (auth enforced), or 302 to a login surface (redirects are not
+     followed) => Kibana with auth enforced; not vulnerable on this port.
+   - Anything else (not Kibana, or a non-Kibana JSON-200 service on this
+     port) => skip this port; never flagged.
+
+No saved object is read, no index is queried, no Dev Tools call is issued,
+no mutating endpoint (`/api/saved_objects/*`, `/api/console/proxy`,
+`/api/spaces/*`, `/internal/*`) is touched. Evidence records only the host,
+port, Kibana version, build number, build hash, and the overall status
+string — never the saved-object inventory, the dashboard titles, or any
+index data. The AWS-maintained OpenSearch Dashboards fork (which carries
+`name == "OpenSearch Dashboards"`) shares the response shape but is
+intentionally NOT flagged — it is a different product with its own CVE
+surface and will be a separate addition.
+
+**Severity:**
+- `HIGH` — Kibana fingerprints AND `/api/status` answers 200 with no
+  authentication challenge (anonymous UI access enabled).
+
+Default ports (port hints): `5601, 5602, 80, 443`. Port `443` is contacted
+over HTTPS; the others over plain HTTP.
+
+```bash
+miasma --target 10.0.0.13 --port-range 1-20000 --plugins miasma_kibana_001
 ```
 
 ## Development
