@@ -247,6 +247,7 @@ its service name as `redis`.
 | `miasma_rabbitmq_001` | `MIASMA-RABBITMQ-001` | RabbitMQ management API reachable with the factory `guest:guest` credential or with anonymous read enabled — `/api/overview` fingerprints the broker via the `rabbitmq_version` / `management_version` JSON keys, an anonymous 200 confirms anonymous-read access (high), and a single `guest:guest` Basic-auth GET confirms default-credential exposure (critical). Either path lets an unauthenticated peer read the broker topology (queues, exchanges, connected clients) and grants full broker control (queue declare/delete, publish/consume, user management). |
 | `miasma_cassandra_001` | `MIASMA-CASSANDRA-001` | Apache Cassandra reachable on its binary native-protocol port without authentication — an `OPTIONS` frame fingerprints Cassandra via the `SUPPORTED` reply (and leaks the `CQL_VERSION` / `COMPRESSION` / `PROTOCOL_VERSIONS` capability set), then a single `STARTUP` frame distinguishes `READY` (no auth, CQL session opens for every keyspace, high) from `AUTHENTICATE` (authenticator class is leaked but no credential is ever sent, medium). Cassandra ships with `authenticator: AllowAllAuthenticator` and `authorizer: AllowAllAuthorizer` by default; the probe sends no `QUERY` / `PREPARE` / `EXECUTE` / `BATCH` / `AUTH_RESPONSE`. |
 | `miasma_influxdb_001` | `MIASMA-INFLUXDB-001` | InfluxDB reachable without authentication on its HTTP API — InfluxDB 1.x fingerprinted via the `X-Influxdb-Version` header on `/ping`, with `/query?q=SHOW DATABASES` confirming unauthenticated metadata access (the 1.x default ships with `[http] auth-enabled = false`, so the database inventory and full read/write of every measurement is reachable without credentials, high); InfluxDB 2.x fingerprinted via `/health` (`name == "influxdb"` plus a parseable `version`), with `GET /api/v2/setup` confirming the appliance is sitting in uninitialised setup mode (`{"allowed": true}`) — any peer that POSTs first wins the admin token, the initial org, and the initial bucket (high). The probe never POSTs to `/api/v2/setup` and never reads a measurement or writes a point. |
+| `miasma_couchdb_001` | `MIASMA-COUCHDB-001` | Apache CouchDB reachable without authentication on its HTTP API — `GET /` fingerprints CouchDB via the JSON body's `couchdb == "Welcome"` marker plus a parseable `version`, and an unauthenticated 200 on the admin-only `GET /_all_dbs` confirms the cluster is in "admin party" mode where every peer is a server admin (high). An admin-party CouchDB grants any peer the right to create databases, read/write/delete any document, replicate the entire dataset to an attacker-controlled endpoint, and on builds before the CVE-2022-24706 hardening edit the cluster admin set or install a design document that runs arbitrary JavaScript in the query server. The probe never PUTs or POSTs and never reads a document body or a database name. |
 | `miasma_kibana_001` | `MIASMA-KIBANA-001` | Kibana reachable without authentication on its HTTP API — `/api/status` fingerprints Kibana via the `version.number` semver and the Kibana-specific `status.overall` block (or a `name` field carrying the `kibana` marker), and an anonymous 200 confirms anonymous-read access (high). An unauthenticated Kibana grants browseable read of every index in the backing Elasticsearch cluster (via Discover), every saved search / visualisation / dashboard, and the Dev Tools console — which proxies arbitrary requests to the Elasticsearch cluster on the Kibana service account. The OpenSearch Dashboards fork is explicitly NOT flagged. |
 
 ### MIASMA-ACTUATOR-001 — Spring Boot Actuator exposure
@@ -1411,6 +1412,65 @@ over HTTPS; the others over plain HTTP.
 
 ```bash
 miasma --target 10.0.0.50 --port-range 1-20000 --plugins miasma_influxdb_001
+```
+
+### MIASMA-COUCHDB-001 — CouchDB unauthenticated HTTP API exposure
+
+Apache CouchDB is a document database whose HTTP API is the only API surface;
+every operation (create database, read document, replicate, run a view, edit
+the cluster admin set) is one HTTP request. Two recurring misconfigurations
+turn an exposed CouchDB into a P1/critical finding:
+
+1. **"Admin party" — no server admin configured.** CouchDB 1.x shipped in
+   this state out of the box; 2.x/3.x require an admin to be set during
+   cluster setup but a node started without completing setup, or a node
+   whose `_users` / `local.ini` admin section was cleared, falls back to
+   admin party. In admin party EVERY peer is a server admin: any peer can
+   create databases, read/write/delete any document, replicate the entire
+   dataset to an attacker-controlled endpoint, and on builds before the
+   CVE-2022-24706 hardening edit the cluster admin set or install a design
+   document that runs arbitrary JavaScript in the query server.
+2. **CVE-2017-12635 / CVE-2017-12636 era exposure.** Pre-2.1.1 builds
+   answered `GET /_config` unauthenticated on the per-node loopback binding
+   and shipped the Erlang `query_server` config writable, which chains to
+   RCE. We do not probe `/_config` directly; the version banner from
+   `GET /` is captured so an operator can flag in-scope builds.
+
+The probe is benign and read-only. It runs the minimal GET requests a human
+would run by hand, and **never PUTs or POSTs** (no admin is added to
+`/_node/.../_config/admins`, no user is created in `/_users`):
+
+1. `GET /` — fingerprints CouchDB via the JSON body's `couchdb == "Welcome"`
+   marker (case-insensitive) and a parseable `version` string. Both markers
+   must be present; neither field is shipped by any other product.
+2. `GET /_all_dbs` — confirms admin-party exposure. A 200 carrying a JSON
+   array is the positive (even an empty `[]` array is a positive: the
+   endpoint is admin-only, so a 200 reply without authentication is the
+   definitive misconfiguration marker regardless of whether the cluster
+   has yet created its first user database). A 401/403 reply means an
+   admin is configured and authentication is enforced — clean negative.
+
+No document is read, no database is created or deleted, and no admin is
+ever created. A non-CouchDB host (a coincidental JSON 200 on `/` without
+both the `couchdb` and `version` markers, or a 200 on `/_all_dbs` whose
+body is not a JSON array) is **never** flagged. Redirects are not followed.
+
+Evidence records only the host, port, CouchDB version string, the database
+**count**, and (when the welcome banner included them) the
+server-published `vendor` name, `git_sha`, and `uuid`. Database NAMES are
+**never** read or stored; document bodies are **never** read.
+
+**Severity:**
+
+- `HIGH` — CouchDB fingerprints AND `/_all_dbs` returns 200 with a JSON
+  array (the cluster is in admin party; every database is readable,
+  writable, and replicable to any peer).
+
+Default ports (port hints): `5984, 6984, 80, 443`. Ports `6984` and `443`
+are contacted over HTTPS; the others over plain HTTP.
+
+```bash
+miasma --target 10.0.0.60 --port-range 1-20000 --plugins miasma_couchdb_001
 ```
 
 ## Development
