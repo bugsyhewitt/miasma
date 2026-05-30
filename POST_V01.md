@@ -861,3 +861,53 @@ user reset; exactly one credential pair attempted (not a brute force).
 20 tests in `tests/test_rabbitmq.py`. Ports: 15672 (HTTP management),
 15671 (HTTPS management), 80, 443 (HTTPS reverse-proxy fronts).
 Total tests: 426 → 446 (+20).
+
+## Rotation 32 fresh-gap addition
+
+### 32. Apache Cassandra Unauthenticated Native-Protocol Access — MIASMA-CASSANDRA-001
+
+**Rank: fresh gap (R32, 2026-05-29)** — The dispatched options were Apache
+Cassandra unauthenticated access (queued since R30 — passed over in R30 for
+Memcached and again in R31 for RabbitMQ) or Elasticsearch unauthenticated
+access. An audit of the plugin directory confirmed `miasma_elastic_001.py`
+already shipped (existing Elasticsearch plugin under that name handles the
+unauthenticated cluster surface), so Elasticsearch was not an open gap.
+Cassandra was the remaining unimplemented candidate from the dispatched pair,
+and the last major unauthenticated-datastore peer in the family alongside
+Redis, MongoDB, etcd, ZooKeeper, Memcached, and Elasticsearch.
+
+**What:** Apache Cassandra is the dominant wide-column distributed datastore.
+The binary native protocol listens on TCP 9042 with `authenticator:
+AllowAllAuthenticator` and `authorizer: AllowAllAuthorizer` by default — no
+authentication, no authorisation, no transport encryption without explicit
+configuration. Any client that reaches 9042 can open a CQL session, read every
+keyspace, and SELECT / INSERT / UPDATE / DROP at will. The default-allow
+authenticator is repeatedly called out by DataStax, Apache, and CIS hardening
+guides as an internet-exposure footgun, and historical scans repeatedly find
+tens of thousands of internet-reachable nodes still on the defaults.
+
+**Probe:** Read-only two-frame native-protocol handshake — exactly what a CQL
+driver runs at session open. `OPTIONS` (opcode 0x05, empty body) fingerprints
+Cassandra via the `SUPPORTED` reply (opcode 0x06, string multimap of
+`CQL_VERSION` / `COMPRESSION` / `PROTOCOL_VERSIONS`). `STARTUP` (opcode 0x01,
+body = `{"CQL_VERSION": "3.0.0"}`) distinguishes `READY` (opcode 0x02, no
+auth) from `AUTHENTICATE` (opcode 0x03, authenticator class leaked but no
+credential ever sent). No `QUERY` (0x07), `PREPARE` (0x09), `EXECUTE` (0x0A),
+`BATCH` (0x0D), `REGISTER` (0x0B), or `AUTH_RESPONSE` (0x0F) is ever sent.
+Evidence records only the host, port, negotiated capability lists, protocol
+version, and (on AUTHENTICATE) the authenticator class — no row, keyspace
+name, table name, or credential.
+
+**Severity:**
+- HIGH: `OPTIONS` fingerprints Cassandra AND `STARTUP` is answered with
+  `READY` (unauthenticated CQL session opens; every keyspace reachable).
+- MEDIUM: `OPTIONS` fingerprints Cassandra AND `STARTUP` is answered with
+  `AUTHENTICATE` (wire surface reachable, authenticator class leaked, no
+  credential attempted).
+- MEDIUM: `OPTIONS` fingerprints Cassandra but `STARTUP` returns an ERROR or
+  unexpected opcode (wire surface confirmed, posture unknown).
+
+**STATUS: ✅ IMPLEMENTED (R32, 2026-05-29).** Plugin `miasma_cassandra_001.py`,
+21 tests in `tests/test_cassandra.py`. Ports: 9042 (native protocol),
+9043 (secondary instance), 9142 (TLS-wrapped client_encryption).
+Total tests: 446 → 467 (+21).

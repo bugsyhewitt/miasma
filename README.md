@@ -245,6 +245,7 @@ its service name as `redis`.
 | `miasma_zookeeper_001` | `MIASMA-ZOOKEEPER-001` | Apache ZooKeeper reachable without transport authentication — the `ruok`→`imok` four-letter-word (4lw) handshake fingerprints ZooKeeper, `srvr` confirms the admin surface answers unauthenticated and leaks the version / mode / runtime summary (high), and `envi` is scanned for credential-bearing JVM system-property names (high). ZooKeeper listens on 2181 with no connection-level auth by default and backs Kafka/HBase/SolrCloud/Hadoop. |
 | `miasma_memcached_001` | `MIASMA-MEMCACHED-001` | Memcached reachable on its TCP client port without authentication — `version` fingerprints Memcached via the `VERSION <semver>` banner, and `stats` confirms the ASCII text-protocol admin surface answers unauthenticated and leaks the inventory counters (`curr_items`, `total_items`, `bytes`); a live cache (`curr_items > 0`, high) means an unauthenticated peer can read every cached value (routinely application session data, JWTs, password-reset tokens). Memcached ships with no auth/TLS by default; 11211/udp is also the long-running UDP amplification reflector (CVE-2018-1000115). |
 | `miasma_rabbitmq_001` | `MIASMA-RABBITMQ-001` | RabbitMQ management API reachable with the factory `guest:guest` credential or with anonymous read enabled — `/api/overview` fingerprints the broker via the `rabbitmq_version` / `management_version` JSON keys, an anonymous 200 confirms anonymous-read access (high), and a single `guest:guest` Basic-auth GET confirms default-credential exposure (critical). Either path lets an unauthenticated peer read the broker topology (queues, exchanges, connected clients) and grants full broker control (queue declare/delete, publish/consume, user management). |
+| `miasma_cassandra_001` | `MIASMA-CASSANDRA-001` | Apache Cassandra reachable on its binary native-protocol port without authentication — an `OPTIONS` frame fingerprints Cassandra via the `SUPPORTED` reply (and leaks the `CQL_VERSION` / `COMPRESSION` / `PROTOCOL_VERSIONS` capability set), then a single `STARTUP` frame distinguishes `READY` (no auth, CQL session opens for every keyspace, high) from `AUTHENTICATE` (authenticator class is leaked but no credential is ever sent, medium). Cassandra ships with `authenticator: AllowAllAuthenticator` and `authorizer: AllowAllAuthorizer` by default; the probe sends no `QUERY` / `PREPARE` / `EXECUTE` / `BATCH` / `AUTH_RESPONSE`. |
 
 ### MIASMA-ACTUATOR-001 — Spring Boot Actuator exposure
 
@@ -1239,6 +1240,61 @@ are contacted over HTTPS; the others over plain HTTP.
 
 ```bash
 miasma --target 10.0.0.12 --port-range 1-20000 --plugins miasma_rabbitmq_001
+```
+
+### MIASMA-CASSANDRA-001 — Apache Cassandra unauthenticated native-protocol access
+
+Apache Cassandra is the dominant wide-column distributed datastore behind
+session stores, time-series telemetry, IoT ingest pipelines, fraud-detection
+feature stores, and the metadata layer of countless SaaS products. By default
+the binary native protocol listens on TCP `9042` with `authenticator:
+AllowAllAuthenticator` and `authorizer: AllowAllAuthorizer` — no
+authentication, no authorisation, and (without explicit configuration) no
+transport encryption. Any client that can reach 9042 can open a CQL session,
+read every keyspace and table, SELECT every row, and INSERT / UPDATE / DROP at
+will. An internet- or broadly-internal-reachable Cassandra is rated P1/HIGH on
+bug-bounty programs; the contents typically include session data, PII, and
+application secrets that, by themselves, enable full account-takeover or a
+data-breach claim. The probe runs the two-frame handshake every CQL driver
+runs at session open, and is benign and read-only:
+
+1. Send an `OPTIONS` frame (opcode `0x05`, empty body).
+   - A `SUPPORTED` frame (opcode `0x06`) in reply fingerprints Cassandra and
+     leaks the negotiated `CQL_VERSION`, `COMPRESSION`, and
+     `PROTOCOL_VERSIONS` capability lists; proceed to step 2.
+   - Any other reply (or no reply, or a request-direction frame) is not
+     Cassandra; skip this port and never flag.
+
+2. Send a `STARTUP` frame (opcode `0x01`, body = `{"CQL_VERSION": "3.0.0"}`).
+   - `READY` (opcode `0x02`, empty body) => the cluster accepts a CQL session
+     with no credentials. HIGH.
+   - `AUTHENTICATE` (opcode `0x03`, body = `[string]` authenticator class) =>
+     the binary surface is reachable and the cluster identity is leaked, but
+     the authenticator is configured. MEDIUM. No credential is ever sent.
+   - `ERROR` or any other opcode => Cassandra is still fingerprinted from the
+     SUPPORTED reply, but the STARTUP response is unusual; MEDIUM.
+
+No `QUERY`, `PREPARE`, `EXECUTE`, `BATCH`, `REGISTER`, or `AUTH_RESPONSE`
+opcode is ever sent — those would execute CQL or attempt a credential.
+Evidence records only the host, port, the negotiated capability lists, the
+protocol version observed in the response header, and (when AUTHENTICATE is
+returned) the authenticator class name the server advertises. No row, no
+keyspace name, no table name, no credential is ever read or stored.
+
+**Severity:**
+- `HIGH` — `OPTIONS` fingerprints Cassandra AND `STARTUP` is answered with
+  `READY` (CQL session opens with no credentials).
+- `MEDIUM` — `OPTIONS` fingerprints Cassandra AND `STARTUP` is answered with
+  `AUTHENTICATE` (wire surface confirmed, authenticator enforced).
+- `MEDIUM` — `OPTIONS` fingerprints Cassandra but the `STARTUP` reply is an
+  ERROR / unexpected opcode (wire surface confirmed, posture unknown).
+
+Default ports (port hints): `9042, 9043, 9142`. `9042` is the documented
+native-protocol port; `9142` is the documented `client_encryption` (TLS) port
+and `9043` a conventional secondary-instance port.
+
+```bash
+miasma --target 10.0.0.42 --port-range 1-20000 --plugins miasma_cassandra_001
 ```
 
 ## Development
