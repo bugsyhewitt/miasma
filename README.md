@@ -246,6 +246,7 @@ its service name as `redis`.
 | `miasma_memcached_001` | `MIASMA-MEMCACHED-001` | Memcached reachable on its TCP client port without authentication — `version` fingerprints Memcached via the `VERSION <semver>` banner, and `stats` confirms the ASCII text-protocol admin surface answers unauthenticated and leaks the inventory counters (`curr_items`, `total_items`, `bytes`); a live cache (`curr_items > 0`, high) means an unauthenticated peer can read every cached value (routinely application session data, JWTs, password-reset tokens). Memcached ships with no auth/TLS by default; 11211/udp is also the long-running UDP amplification reflector (CVE-2018-1000115). |
 | `miasma_rabbitmq_001` | `MIASMA-RABBITMQ-001` | RabbitMQ management API reachable with the factory `guest:guest` credential or with anonymous read enabled — `/api/overview` fingerprints the broker via the `rabbitmq_version` / `management_version` JSON keys, an anonymous 200 confirms anonymous-read access (high), and a single `guest:guest` Basic-auth GET confirms default-credential exposure (critical). Either path lets an unauthenticated peer read the broker topology (queues, exchanges, connected clients) and grants full broker control (queue declare/delete, publish/consume, user management). |
 | `miasma_cassandra_001` | `MIASMA-CASSANDRA-001` | Apache Cassandra reachable on its binary native-protocol port without authentication — an `OPTIONS` frame fingerprints Cassandra via the `SUPPORTED` reply (and leaks the `CQL_VERSION` / `COMPRESSION` / `PROTOCOL_VERSIONS` capability set), then a single `STARTUP` frame distinguishes `READY` (no auth, CQL session opens for every keyspace, high) from `AUTHENTICATE` (authenticator class is leaked but no credential is ever sent, medium). Cassandra ships with `authenticator: AllowAllAuthenticator` and `authorizer: AllowAllAuthorizer` by default; the probe sends no `QUERY` / `PREPARE` / `EXECUTE` / `BATCH` / `AUTH_RESPONSE`. |
+| `miasma_influxdb_001` | `MIASMA-INFLUXDB-001` | InfluxDB reachable without authentication on its HTTP API — InfluxDB 1.x fingerprinted via the `X-Influxdb-Version` header on `/ping`, with `/query?q=SHOW DATABASES` confirming unauthenticated metadata access (the 1.x default ships with `[http] auth-enabled = false`, so the database inventory and full read/write of every measurement is reachable without credentials, high); InfluxDB 2.x fingerprinted via `/health` (`name == "influxdb"` plus a parseable `version`), with `GET /api/v2/setup` confirming the appliance is sitting in uninitialised setup mode (`{"allowed": true}`) — any peer that POSTs first wins the admin token, the initial org, and the initial bucket (high). The probe never POSTs to `/api/v2/setup` and never reads a measurement or writes a point. |
 | `miasma_kibana_001` | `MIASMA-KIBANA-001` | Kibana reachable without authentication on its HTTP API — `/api/status` fingerprints Kibana via the `version.number` semver and the Kibana-specific `status.overall` block (or a `name` field carrying the `kibana` marker), and an anonymous 200 confirms anonymous-read access (high). An unauthenticated Kibana grants browseable read of every index in the backing Elasticsearch cluster (via Discover), every saved search / visualisation / dashboard, and the Dev Tools console — which proxies arbitrary requests to the Elasticsearch cluster on the Kibana service account. The OpenSearch Dashboards fork is explicitly NOT flagged. |
 
 ### MIASMA-ACTUATOR-001 — Spring Boot Actuator exposure
@@ -1347,6 +1348,69 @@ over HTTPS; the others over plain HTTP.
 
 ```bash
 miasma --target 10.0.0.13 --port-range 1-20000 --plugins miasma_kibana_001
+```
+
+### MIASMA-INFLUXDB-001 — InfluxDB unauthenticated HTTP API exposure
+
+InfluxDB is the dominant open-source time-series database for metrics, IoT
+telemetry, application-performance-monitoring backends, and SRE dashboards.
+Two recurring misconfigurations turn an exposed InfluxDB into a P1/critical
+finding, and this single probe covers both via the same fingerprint surface:
+
+1. **InfluxDB 1.x with auth disabled (the shipped default).** The 1.x
+   configuration ships with `[http] auth-enabled = false`; until an
+   operator flips that flag, the HTTP API answers every peer. An
+   unauthenticated peer can read every database
+   (`SHOW DATABASES` → `SELECT * FROM <m>`), write or delete points,
+   `DROP DATABASE`, and on pre-2019 builds reach the `CREATE SUBSCRIPTION`
+   UDP sink.
+2. **InfluxDB 2.x in uninitialised "setup mode".** A freshly installed
+   2.x server exposes `/api/v2/setup` answering `{"allowed": true}` while
+   waiting for its first admin to be created. Any peer that POSTs to
+   `/api/v2/setup` first wins the admin token, the initial org, and the
+   initial bucket — full appliance takeover.
+
+The probe is benign and read-only. It runs the minimal GET requests a human
+would run by hand, and **never POSTs** (the 2.x setup window is reported
+for a human to claim, not claimed by miasma):
+
+1. `GET /health` — fingerprints InfluxDB 2.x via the JSON body's
+   `name == "influxdb"` marker and a parseable `version`.
+2. `GET /ping` — fingerprints InfluxDB 1.x via the `X-Influxdb-Version`
+   response header (and `X-Influxdb-Build` when present). Both headers are
+   InfluxDB-specific and no other product ships them.
+3. `GET /api/v2/setup` — only against a fingerprinted 2.x server. A 200
+   carrying `{"allowed": true}` confirms the uninitialised window is open.
+4. `GET /query?q=SHOW DATABASES` — only against a fingerprinted 1.x server.
+   A 200 whose `results[0].series[0].values` array is the database
+   inventory confirms unauthenticated metadata access; even the
+   always-present `_internal` database is a positive.
+
+No measurement is read, no point is written, no database is created or
+dropped, and no admin is ever created. A non-InfluxDB host (a coincidental
+JSON 200 on `/health` without the `influxdb` marker, or a 200 on `/ping`
+without the `X-Influxdb-Version` header) is **never** flagged. A 1.x server
+that refuses `/query` with `401`/`403` (auth enabled) is a clean negative;
+a 2.x server whose `/api/v2/setup` returns `{"allowed": false}` (already
+initialised) is a clean negative. Redirects are not followed.
+
+Evidence records only the host, port, InfluxDB major version (`1.x` /
+`2.x`), the version string, and either the database **count** (1.x) or the
+`setup_allowed` boolean (2.x). Database names, measurement names, point
+values, and admin tokens are **never** read or stored.
+
+**Severity:**
+
+- `HIGH` — InfluxDB 1.x fingerprints AND `/query?q=SHOW DATABASES` returns
+  the database inventory without authentication, OR InfluxDB 2.x
+  fingerprints AND `/api/v2/setup` returns `{"allowed": true}` (the
+  admin-token claim window is open to any peer).
+
+Default ports (port hints): `8086, 8087, 80, 443`. Port `443` is contacted
+over HTTPS; the others over plain HTTP.
+
+```bash
+miasma --target 10.0.0.50 --port-range 1-20000 --plugins miasma_influxdb_001
 ```
 
 ## Development
