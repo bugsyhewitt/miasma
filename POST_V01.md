@@ -942,3 +942,49 @@ routinely the first foothold in a full host compromise chain.
 **STATUS: ✅ IMPLEMENTED (R36, 2026-06-05).** Plugin `miasma_activemq_001.py`,
 22 tests in `tests/test_activemq.py`. Ports: 8161 (primary Jetty HTTP),
 80, 443, 8080 (reverse-proxy fronts). Total tests: 526 → 548 (+22).
+
+## Rotation 37 fresh-gap addition
+
+### 36. Jupyter Notebook/Lab Unauthenticated Code-Execution Exposure — MIASMA-JUPYTER-001
+
+**Rank: fresh gap (R37, 2026-06-05)** — All catalogued POST_V01 plugin items
+(§1.1–§3.7) and all previous fresh-gap additions (R21–R36) had already shipped.
+Jupyter was selected as the highest-value unimplemented service-exposure gap:
+internet-exposed unauthenticated Jupyter instances are a perennial P1/CRITICAL
+finding on bug-bounty programmes and cloud-security audits, and the attack
+surface is uniquely severe because it is a **direct RCE vector**, not just an
+information-disclosure or credential-leak.
+
+**What:** Jupyter Notebook (the classic single-server deployment) and JupyterLab
+(the modern IDE-style successor) ship with token-based authentication disabled
+by default in many deployment configurations — notably JupyterHub-spawned
+single-user servers, Docker-based data-science environments, and any deployment
+where the operator set `c.NotebookApp.token = ''` / `c.ServerApp.token = ''`.
+A deployment reachable without authentication exposes:
+
+- `POST /api/kernels` — spawn a kernel (Python, R, Julia, …)
+- WebSocket `execute_request` — execute arbitrary code in that kernel
+- `GET /api/contents/` — browse and read files accessible to the process
+
+Bug-bounty programmes consistently rate this P1/CRITICAL because exploitation
+requires nothing beyond five lines of Python using the `requests` library.
+Related: CVE-2022-21699 (JupyterLab privilege-escalation via token bypass,
+CVSS 6.5).
+
+**Probe:** Three read-only GET requests, no kernel created:
+1. `GET /api` — fingerprints Jupyter via the `version` key in the JSON response.
+   A 200 without an auth challenge is the primary signal.
+2. `GET /api/kernels` — confirms kernel-management access (CRITICAL).
+3. `GET /api/kernelspecs` — enumerates available execution environments (HIGH).
+
+**Severity:**
+- CRITICAL: `GET /api` fingerprints Jupyter AND `GET /api/kernels` returns 200
+  (kernel management accessible without auth; RCE via POST + WebSocket).
+- HIGH: `GET /api` fingerprints Jupyter AND `GET /api/kernelspecs` returns 200
+  (execution surface enumerable; kernel management access unconfirmed).
+- MEDIUM: `GET /api` fingerprints Jupyter with no auth challenge but both
+  sub-endpoints return non-200 (API surface confirmed; scope unclear).
+
+**STATUS: ✅ IMPLEMENTED (R37, 2026-06-05).** Plugin `miasma_jupyter_001.py`,
+18 tests in `tests/test_jupyter.py`. Ports: 8888 (primary), 8889, 8890, 8080,
+10000, 80, 443. Total tests: 548 → 566 (+18).
