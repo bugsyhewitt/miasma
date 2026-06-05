@@ -911,3 +911,34 @@ name, table name, or credential.
 21 tests in `tests/test_cassandra.py`. Ports: 9042 (native protocol),
 9043 (secondary instance), 9142 (TLS-wrapped client_encryption).
 Total tests: 446 → 467 (+21).
+
+## Rotation 36 fresh-gap addition
+
+### 35. Apache ActiveMQ Default-Credential / Unauthenticated Admin Console — MIASMA-ACTIVEMQ-001
+
+**Rank: fresh gap (R36, 2026-06-05)** — ActiveMQ is the most widely deployed
+open-source Java message broker. The embedded Jetty HTTP admin console on port
+8161 ships with the factory `admin:admin` credential and is a perennial P1/
+critical finding on bug-bounty programs in messaging-heavy estates (payments,
+fintech, logistics). Related to CVE-2023-46604 (CVSS 10.0, pre-auth RCE via
+ClassPathXmlApplicationContext) — an exposed default-credential console is
+routinely the first foothold in a full host compromise chain.
+
+**What:** Three sub-cases:
+1. **CRITICAL** — `admin:admin` accepted: full broker control via the web UI
+   (queue management, consumer inspection, Hawtio JMX invocation).
+2. **HIGH** — Console returns 200 without auth challenge: unauthenticated
+   broker access.
+3. **MEDIUM** — Jolokia REST API (`/api/jolokia/`) open without auth: broker
+   name and queue topology leaked.
+
+**Probe:** Read-only three-step check:
+1. `GET /` — fingerprints ActiveMQ via `"ActiveMQ"` in the response body.
+   A 200 without auth challenge → HIGH. A 401 → default-cred attempt.
+2. `GET /` with `admin:admin` — CRITICAL if accepted.
+3. `GET /api/jolokia/read/org.apache.activemq:type=Broker/BrokerName` —
+   MEDIUM if open. No queue created/deleted, no message published/consumed.
+
+**STATUS: ✅ IMPLEMENTED (R36, 2026-06-05).** Plugin `miasma_activemq_001.py`,
+22 tests in `tests/test_activemq.py`. Ports: 8161 (primary Jetty HTTP),
+80, 443, 8080 (reverse-proxy fronts). Total tests: 526 → 548 (+22).
