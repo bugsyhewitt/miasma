@@ -28,3 +28,6 @@ include = ["miasma*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+    "ship_gate: v0.1 release ship-gate (slow; runs build + fresh venv install + end-to-end)",
+]
