@@ -76,8 +76,8 @@ def wheel_artifacts(tmp_path_factory):
         [sys.executable, "-m", "build", "--wheel", "--sdist", "--outdir", str(out)],
         cwd=str(REPO_ROOT),
     )
-    wheels = list(out.glob("miasma-0.1.0-*.whl"))
-    sdists = list(out.glob("miasma-0.1.0.tar.gz"))
+    wheels = list(out.glob("miasma-1.0.0-*.whl"))
+    sdists = list(out.glob("miasma-1.0.0.tar.gz"))
     assert wheels, f"wheel not built; got: {sorted(p.name for p in out.iterdir())}"
     assert sdists, f"sdist not built; got: {sorted(p.name for p in out.iterdir())}"
     return wheels[0], sdists[0]
@@ -112,16 +112,16 @@ def test_wheel_builds_cleanly(wheel_artifacts):
     wheel_path, sdist_path = wheel_artifacts
     assert wheel_path.exists(), f"wheel missing: {wheel_path}"
     assert sdist_path.exists(), f"sdist missing: {sdist_path}"
-    assert wheel_path.name.startswith("miasma-0.1.0-")
-    assert sdist_path.name == "miasma-0.1.0.tar.gz"
+    assert wheel_path.name.startswith("miasma-1.0.0-")
+    assert sdist_path.name == "miasma-1.0.0.tar.gz"
 
 
 @pytest.mark.ship_gate
 def test_wheel_installs_and_version(fresh_venv_dir):
-    """Entry-point resolves and `miasma --version` prints `miasma 0.1.0`."""
+    """Entry-point resolves and `miasma --version` prints `miasma 1.0.0`."""
     miasma_bin = fresh_venv_dir / "bin" / "miasma"
     version = _run([str(miasma_bin), "--version"]).stdout.strip()
-    assert version == "miasma 0.1.0", f"unexpected version output: {version!r}"
+    assert version == "miasma 1.0.0", f"unexpected version output: {version!r}"
 
 
 @pytest.mark.ship_gate
@@ -134,21 +134,21 @@ def test_wheel_list_plugins(fresh_venv_dir):
     assert installed_stems == expected, (
         f"plugin list mismatch\ninstalled={installed_stems}\nexpected={expected}"
     )
-    assert len(installed_stems) == 34, (
-        f"expected exactly 34 plugins (current ship count); got {len(installed_stems)}"
+    assert len(installed_stems) == 35, (
+        f"expected exactly 35 plugins (current ship count); got {len(installed_stems)}"
     )
 
 
 @pytest.mark.ship_gate
 def test_wheel_version_importable(fresh_venv_dir):
-    """`import miasma; assert miasma.__version__ == '0.1.0'` in fresh venv."""
+    """`import miasma; assert miasma.__version__ == '1.0.0'` in fresh venv."""
     py = fresh_venv_dir / "bin" / "python"
-    _run([str(py), "-c", "import miasma; assert miasma.__version__ == '0.1.0'"])
+    _run([str(py), "-c", "import miasma; assert miasma.__version__ == '1.0.0'"])
 
 
 @pytest.mark.ship_gate
 def test_installed_wheel_public_api(fresh_venv_dir):
-    """Every public module and all 34 plugin modules import cleanly from fresh venv."""
+    """Every public module and all 35 plugin modules import cleanly from fresh venv."""
     py = fresh_venv_dir / "bin" / "python"
     top_level = ["miasma.core", "miasma.cli", "miasma.recon", "miasma.runner"]
     plugin_modules = [f"miasma.plugins.{name}" for name in _expected_plugin_stems()]
@@ -199,4 +199,16 @@ def test_version_source_of_truth_parity():
     assert toml_version == init_version, (
         f"version mismatch: pyproject.toml={toml_version!r}, "
         f"miasma/__init__.py={init_version!r}"
+    )
+
+
+@pytest.mark.ship_gate
+def test_changelog_exists_with_v1_0_0_entry():
+    """CHANGELOG.md must exist at repo root and contain the v1.0.0 entry."""
+    changelog = REPO_ROOT / "CHANGELOG.md"
+    assert changelog.is_file(), f"CHANGELOG.md not found at {changelog}"
+    text = changelog.read_text()
+    assert "## [1.0.0] - 2026-06-20" in text, (
+        f"CHANGELOG.md missing '## [1.0.0] - 2026-06-20' entry; "
+        f"found headers: {[line for line in text.splitlines() if line.startswith('## ')]}"
     )

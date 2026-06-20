@@ -8,6 +8,6 @@ and reproduction evidence.
 
 from miasma.core import Finding, Target
 
-__version__ = "0.1.0"
+__version__ = "1.0.0"
 
 __all__ = ["Finding", "Target", "__version__"]
